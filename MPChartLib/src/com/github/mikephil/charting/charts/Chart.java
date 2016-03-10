@@ -1,17 +1,17 @@
 
 package com.github.mikephil.charting.charts;
 
+import android.animation.ValueAnimator;
+import android.animation.ValueAnimator.AnimatorUpdateListener;
+import android.annotation.SuppressLint;
 import android.content.ContentValues;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.CompressFormat;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Paint.Align;
-import android.graphics.Paint.Style;
-import android.graphics.Path;
 import android.graphics.PointF;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -22,103 +22,82 @@ import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewParent;
 
-import com.github.mikephil.charting.data.BarData;
-import com.github.mikephil.charting.data.BarDataSet;
+import com.github.mikephil.charting.animation.ChartAnimator;
+import com.github.mikephil.charting.animation.Easing;
+import com.github.mikephil.charting.animation.EasingFunction;
+import com.github.mikephil.charting.components.Legend;
+import com.github.mikephil.charting.components.MarkerView;
 import com.github.mikephil.charting.data.ChartData;
-import com.github.mikephil.charting.data.DataSet;
 import com.github.mikephil.charting.data.Entry;
-import com.github.mikephil.charting.data.PieDataSet;
-import com.github.mikephil.charting.interfaces.OnChartGestureListener;
-import com.github.mikephil.charting.interfaces.OnChartValueSelectedListener;
-import com.github.mikephil.charting.utils.Highlight;
-import com.github.mikephil.charting.utils.Legend;
-import com.github.mikephil.charting.utils.Legend.LegendPosition;
-import com.github.mikephil.charting.utils.MarkerView;
-import com.github.mikephil.charting.utils.SelInfo;
+import com.github.mikephil.charting.formatter.DefaultValueFormatter;
+import com.github.mikephil.charting.formatter.ValueFormatter;
+import com.github.mikephil.charting.highlight.ChartHighlighter;
+import com.github.mikephil.charting.highlight.Highlight;
+import com.github.mikephil.charting.interfaces.dataprovider.ChartInterface;
+import com.github.mikephil.charting.interfaces.datasets.IDataSet;
+import com.github.mikephil.charting.listener.ChartTouchListener;
+import com.github.mikephil.charting.listener.OnChartGestureListener;
+import com.github.mikephil.charting.listener.OnChartValueSelectedListener;
+import com.github.mikephil.charting.renderer.DataRenderer;
+import com.github.mikephil.charting.renderer.LegendRenderer;
 import com.github.mikephil.charting.utils.Utils;
-import com.github.mikephil.charting.utils.ValueFormatter;
-import com.nineoldandroids.animation.ObjectAnimator;
-import com.nineoldandroids.animation.ValueAnimator;
-import com.nineoldandroids.animation.ValueAnimator.AnimatorUpdateListener;
+import com.github.mikephil.charting.utils.ViewPortHandler;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.text.DecimalFormat;
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Baseclass of all Chart-Views.
- * 
+ *
  * @author Philipp Jahoda
  */
-public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entry>>> extends View
-        implements AnimatorUpdateListener {
+@SuppressLint("NewApi")
+public abstract class Chart<T extends ChartData<? extends IDataSet<? extends Entry>>> extends
+        ViewGroup
+        implements ChartInterface {
 
-    public static final String LOG_TAG = "MPChart";
+    public static final String LOG_TAG = "MPAndroidChart";
 
-    /** flag that indicates if logging is enabled or not */
+    /**
+     * flag that indicates if logging is enabled or not
+     */
     protected boolean mLogEnabled = false;
-
-    /**
-     * string that is drawn next to the values in the chart, indicating their
-     * unit
-     */
-    protected String mUnit = "";
-
-    /** custom formatter that is used instead of the auto-formatter if set */
-    protected ValueFormatter mValueFormatter = null;
-
-    /**
-     * flag that indicates if the default formatter should be used or if a
-     * custom one is set
-     */
-    private boolean mUseDefaultFormatter = true;
-
-    /** chart offset to the left */
-    protected float mOffsetLeft = 12;
-
-    /** chart toffset to the top */
-    protected float mOffsetTop = 12;
-
-    /** chart offset to the right */
-    protected float mOffsetRight = 12;
-
-    /** chart offset to the bottom */
-    protected float mOffsetBottom = 12;
-
-    /**
-     * object that holds all data relevant for the chart (x-vals, y-vals, ...)
-     * that are currently displayed
-     */
-    protected T mCurrentData = null;
 
     /**
      * object that holds all data that was originally set for the chart, before
      * it was modified or any filtering algorithms had been applied
      */
-    protected T mOriginalData = null;
+    protected T mData = null;
 
-    /** the canvas that is used for drawing on the bitmap */
-    protected Canvas mDrawCanvas;
+    /**
+     * Flag that indicates if highlighting per tap (touch) is enabled
+     */
+    protected boolean mHighLightPerTapEnabled = true;
 
-    /** the lowest value the chart can display */
-    protected float mYChartMin = 0.0f;
+    /**
+     * If set to true, chart continues to scroll after touch up
+     */
+    private boolean mDragDecelerationEnabled = true;
 
-    /** the highest value the chart can display */
-    protected float mYChartMax = 0.0f;
+    /**
+     * Deceleration friction coefficient in [0 ; 1] interval, higher values
+     * indicate that speed will decrease slowly, for example if it set to 0, it
+     * will stop immediately. 1 is an invalid value, and will be converted to
+     * 0.999f automatically.
+     */
+    private float mDragDecelerationFrictionCoef = 0.9f;
 
-    /** paint for the x-label values */
-    protected Paint mXLabelPaint;
-
-    /** paint for the y-label values */
-    protected Paint mYLabelPaint;
-
-    /** paint used for highlighting values */
-    protected Paint mHighlightPaint;
+    /**
+     * default value-formatter, number of digits depends on provided chart-data
+     */
+    protected ValueFormatter mDefaultFormatter;
 
     /**
      * paint object used for drawing the description text in the bottom right
@@ -133,69 +112,38 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     protected Paint mInfoPaint;
 
     /**
-     * paint object for drawing values (text representing values of chart
-     * entries)
+     * description text that appears in the bottom right corner of the chart
      */
-    protected Paint mValuePaint;
+    protected String mDescription = "Description";
 
-    /** this is the paint object used for drawing the data onto the chart */
-    protected Paint mRenderPaint;
-
-    /** paint for the legend labels */
-    protected Paint mLegendLabelPaint;
-
-    /** paint used for the legend forms */
-    protected Paint mLegendFormPaint;
-
-    /** paint used for the limit lines */
-    protected Paint mLimitLinePaint;
-
-    /** description text that appears in the bottom right corner of the chart */
-    protected String mDescription = "Description.";
-
-    /** flag that indicates if the chart has been fed with data yet */
-    protected boolean mDataNotSet = true;
-
-    /** if true, units are drawn next to the values in the chart */
-    protected boolean mDrawUnitInChart = false;
-
-    /** the range of y-values the chart displays */
-    protected float mDeltaY = 1f;
-
-    /** the number of x-values the chart displays */
+    /**
+     * the number of x-values the chart displays
+     */
     protected float mDeltaX = 1f;
 
-    /** matrix to map the values to the screen pixels */
-    protected Matrix mMatrixValueToPx = new Matrix();
+    protected float mXChartMin = 0f;
+    protected float mXChartMax = 0f;
 
-    /** matrix for handling the different offsets of the chart */
-    protected Matrix mMatrixOffset = new Matrix();
-
-    /** matrix used for touch events */
-    protected final Matrix mMatrixTouch = new Matrix();
-
-    /** if true, touch gestures are enabled on the chart */
+    /**
+     * if true, touch gestures are enabled on the chart
+     */
     protected boolean mTouchEnabled = true;
 
-    /** if true, y-values are drawn on the chart */
-    protected boolean mDrawYValues = true;
-
-    /** if true, value highlightning is enabled */
-    protected boolean mHighlightEnabled = true;
-
-    /** flag indicating if the legend is drawn of not */
-    protected boolean mDrawLegend = true;
-
-    /** this rectangle defines the area in which graph values can be drawn */
-    protected RectF mContentRect = new RectF();
-
-    /** the legend object containing all data associated with the legend */
+    /**
+     * the legend object containing all data associated with the legend
+     */
     protected Legend mLegend;
 
-    /** listener that is called when a value on the chart is selected */
+    /**
+     * listener that is called when a value on the chart is selected
+     */
     protected OnChartValueSelectedListener mSelectionListener;
 
-    /** text that is displayed when the chart is empty */
+    protected ChartTouchListener mChartTouchListener;
+
+    /**
+     * text that is displayed when the chart is empty
+     */
     private String mNoDataText = "No chart data available.";
 
     /**
@@ -209,19 +157,52 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
      */
     private String mNoDataTextDescription;
 
-    /** default constructor for initialization in code */
+    protected LegendRenderer mLegendRenderer;
+
+    /**
+     * object responsible for rendering the data
+     */
+    protected DataRenderer mRenderer;
+
+    protected ChartHighlighter mHighlighter;
+
+    /**
+     * object that manages the bounds and drawing constraints of the chart
+     */
+    protected ViewPortHandler mViewPortHandler;
+
+    /**
+     * object responsible for animations
+     */
+    protected ChartAnimator mAnimator;
+
+    /**
+     * Extra offsets to be appended to the viewport
+     */
+    private float mExtraTopOffset = 0.f,
+            mExtraRightOffset = 0.f,
+            mExtraBottomOffset = 0.f,
+            mExtraLeftOffset = 0.f;
+
+    /**
+     * default constructor for initialization in code
+     */
     public Chart(Context context) {
         super(context);
         init();
     }
 
-    /** constructor for initialization in xml */
+    /**
+     * constructor for initialization in xml
+     */
     public Chart(Context context, AttributeSet attrs) {
         super(context, attrs);
         init();
     }
 
-    /** even more awesome constructor */
+    /**
+     * even more awesome constructor
+     */
     public Chart(Context context, AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
         init();
@@ -232,19 +213,31 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
      */
     protected void init() {
 
-        // setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        setWillNotDraw(false);
+        // setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
+        if (android.os.Build.VERSION.SDK_INT < 11)
+            mAnimator = new ChartAnimator();
+        else
+            mAnimator = new ChartAnimator(new AnimatorUpdateListener() {
+
+                @Override
+                public void onAnimationUpdate(ValueAnimator animation) {
+                    // ViewCompat.postInvalidateOnAnimation(Chart.this);
+                    postInvalidate();
+                }
+            });
 
         // initialize the utils
-        Utils.init(getContext().getResources());
+        Utils.init(getContext());
 
-        // do screen density conversions
-        mOffsetBottom = (int) Utils.convertDpToPixel(mOffsetBottom);
-        mOffsetLeft = (int) Utils.convertDpToPixel(mOffsetLeft);
-        mOffsetRight = (int) Utils.convertDpToPixel(mOffsetRight);
-        mOffsetTop = (int) Utils.convertDpToPixel(mOffsetTop);
+        mDefaultFormatter = new DefaultValueFormatter(1);
 
-        mRenderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mRenderPaint.setStyle(Style.FILL);
+        mViewPortHandler = new ViewPortHandler();
+
+        mLegend = new Legend();
+
+        mLegendRenderer = new LegendRenderer(mViewPortHandler, mLegend);
 
         mDescPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         mDescPaint.setColor(Color.BLACK);
@@ -256,36 +249,10 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
         mInfoPaint.setTextAlign(Align.CENTER);
         mInfoPaint.setTextSize(Utils.convertDpToPixel(12f));
 
-        mValuePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mValuePaint.setColor(Color.rgb(63, 63, 63));
-        mValuePaint.setTextAlign(Align.CENTER);
-        mValuePaint.setTextSize(Utils.convertDpToPixel(9f));
-
-        mLegendFormPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mLegendFormPaint.setStyle(Paint.Style.FILL);
-        mLegendFormPaint.setStrokeWidth(3f);
-
-        mLegendLabelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mLegendLabelPaint.setTextSize(Utils.convertDpToPixel(9f));
-
-        mHighlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mHighlightPaint.setStyle(Paint.Style.STROKE);
-        mHighlightPaint.setStrokeWidth(2f);
-        mHighlightPaint.setColor(Color.rgb(255, 187, 115));
-
-        mXLabelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mXLabelPaint.setColor(Color.BLACK);
-        mXLabelPaint.setTextAlign(Align.CENTER);
-        mXLabelPaint.setTextSize(Utils.convertDpToPixel(10f));
-
-        mYLabelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mYLabelPaint.setColor(Color.BLACK);
-        mYLabelPaint.setTextSize(Utils.convertDpToPixel(10f));
-
-        mLimitLinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mLimitLinePaint.setStyle(Paint.Style.STROKE);
-
         mDrawPaint = new Paint(Paint.DITHER_FLAG);
+
+        if (mLogEnabled)
+            Log.i("", "Chart.init()");
     }
 
     // public void initWithDummyData() {
@@ -325,17 +292,10 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     /**
      * Sets a new data object for the chart. The data object contains all values
      * and information needed for displaying.
-     * 
+     *
      * @param data
      */
     public void setData(T data) {
-
-        // if (data == null || !data.isValid()) {
-        // Log.e(LOG_TAG,
-        // "Cannot set data for chart. Provided chart values are null or contain less than 1 entry.");
-        // mDataNotSet = true;
-        // return;
-        // }
 
         if (data == null) {
             Log.e(LOG_TAG,
@@ -343,47 +303,57 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
             return;
         }
 
-        // Log.i(LOG_TAG, "xvalcount: " + data.getXValCount());
-        // Log.i(LOG_TAG, "entrycount: " + data.getYValCount());
-
         // LET THE CHART KNOW THERE IS DATA
-        mDataNotSet = false;
         mOffsetsCalculated = false;
-        mCurrentData = data;
-        mOriginalData = data;
-
-        prepare();
+        mData = data;
 
         // calculate how many digits are needed
-        calcFormats();
+        calculateFormatter(data.getYMin(), data.getYMax());
 
-        Log.i(LOG_TAG, "Data is set.");
+        for (IDataSet set : mData.getDataSets()) {
+            if (Utils.needsDefaultFormatter(set.getValueFormatter()))
+                set.setValueFormatter(mDefaultFormatter);
+        }
+
+        // let the chart know there is new data
+        notifyDataSetChanged();
+
+        if (mLogEnabled)
+            Log.i(LOG_TAG, "Data is set.");
     }
 
     /**
-     * Clears the chart from all data and refreshes it (by calling
-     * invalidate()).
+     * Clears the chart from all data (sets it to null) and refreshes it (by
+     * calling invalidate()).
      */
     public void clear() {
-        mCurrentData = null;
-        mOriginalData = null;
-        mDataNotSet = true;
+        mData = null;
+        mIndicesToHighlight = null;
+        invalidate();
+    }
+
+    /**
+     * Removes all DataSets (and thereby Entries) from the chart. Does not
+     * remove the x-values. Also refreshes the chart by calling invalidate().
+     */
+    public void clearValues() {
+        mData.clearValues();
         invalidate();
     }
 
     /**
      * Returns true if the chart is empty (meaning it's data object is either
      * null or contains no entries).
-     * 
+     *
      * @return
      */
     public boolean isEmpty() {
 
-        if (mOriginalData == null)
+        if (mData == null)
             return true;
         else {
 
-            if (mOriginalData.getYValCount() <= 0)
+            if (mData.getYValCount() <= 0)
                 return true;
             else
                 return false;
@@ -391,13 +361,10 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     }
 
     /**
-     * does needed preparations for drawing
-     */
-    public abstract void prepare();
-
-    /**
      * Lets the chart know its underlying data has changed and performs all
-     * necessary recalculations.
+     * necessary recalculations. It is crucial that this method is called
+     * everytime data is changed dynamically. Not calling this method can lead
+     * to crashes or unexpected behaviour.
      */
     public abstract void notifyDataSetChanged();
 
@@ -411,76 +378,66 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     /**
      * calcualtes the y-min and y-max value and the y-delta and x-delta value
      */
-    protected void calcMinMax(boolean fixedValues) {
-        // only calculate values if not fixed values
-        if (!fixedValues) {
-            mYChartMin = mCurrentData.getYMin();
-            mYChartMax = mCurrentData.getYMax();
-        }
-
-        // calc delta
-        mDeltaY = Math.abs(mYChartMax - mYChartMin);
-        mDeltaX = mCurrentData.getXVals().size() - 1;
-    }
+    protected abstract void calcMinMax();
 
     /**
      * calculates the required number of digits for the values that might be
-     * drawn in the chart (if enabled)
+     * drawn in the chart (if enabled), and creates the default-value-formatter
      */
-    protected void calcFormats() {
+    protected void calculateFormatter(float min, float max) {
 
-        // check if a custom formatter is set or not
-        if (mUseDefaultFormatter) {
+        float reference = 0f;
 
-            float reference = 0f;
+        if (mData == null || mData.getXValCount() < 2) {
 
-            if (mOriginalData == null || mOriginalData.getXValCount() < 2) {
-
-                reference = Math.max(Math.abs(mYChartMin), Math.abs(mYChartMax));
-            } else {
-                reference = mDeltaY;
-            }
-
-            int digits = Utils.getDecimals(reference);
-
-            StringBuffer b = new StringBuffer();
-            for (int i = 0; i < digits; i++) {
-                if (i == 0)
-                    b.append(".");
-                b.append("0");
-            }
-
-            DecimalFormat formatter = new DecimalFormat("###,###,###,##0" + b.toString());
-            mValueFormatter = new DefaultValueFormatter(formatter);
+            reference = Math.max(Math.abs(min), Math.abs(max));
+        } else {
+            reference = Math.abs(max - min);
         }
+
+        int digits = Utils.getDecimals(reference);
+        mDefaultFormatter = new DefaultValueFormatter(digits);
     }
 
-    /** flag that indicates if offsets calculation has already been done or not */
+    /**
+     * flag that indicates if offsets calculation has already been done or not
+     */
     private boolean mOffsetsCalculated = false;
 
     /**
-     * Bitmap object used for drawing. This is necessary because hardware
-     * acceleration uses OpenGL which only allows a specific texture size to be
-     * drawn on the canvas directly.
-     **/
-    protected Bitmap mDrawBitmap;
-
-    /** paint object used for drawing the bitmap */
+     * paint object used for drawing the bitmap
+     */
     protected Paint mDrawPaint;
 
     @Override
     protected void onDraw(Canvas canvas) {
         // super.onDraw(canvas);
 
-        if (mDataNotSet) { // check if there is data
+        if (mData == null) {
+
+            boolean hasText = !TextUtils.isEmpty(mNoDataText);
+            boolean hasDescription = !TextUtils.isEmpty(mNoDataTextDescription);
+            float line1height = hasText ? Utils.calcTextHeight(mInfoPaint, mNoDataText) : 0.f;
+            float line2height = hasDescription ? Utils.calcTextHeight(mInfoPaint, mNoDataTextDescription) : 0.f;
+            float lineSpacing = (hasText && hasDescription) ?
+                    (mInfoPaint.getFontSpacing() - line1height) : 0.f;
 
             // if no data, inform the user
-            canvas.drawText(mNoDataText, getWidth() / 2, getHeight() / 2, mInfoPaint);
 
-            if (!TextUtils.isEmpty(mNoDataTextDescription)) {
-                float textOffset = -mInfoPaint.ascent() + mInfoPaint.descent();
-                canvas.drawText(mNoDataTextDescription, getWidth() / 2, (getHeight() / 2)
-                        + textOffset, mInfoPaint);
+            float y = (getHeight() -
+                    (line1height + lineSpacing + line2height)) / 2.f
+                    + line1height;
+
+            if (hasText) {
+                canvas.drawText(mNoDataText, getWidth() / 2, y, mInfoPaint);
+
+                if (hasDescription) {
+                    y = y + line1height + lineSpacing;
+                }
+            }
+
+            if (hasDescription) {
+                canvas.drawText(mNoDataTextDescription, getWidth() / 2, y, mInfoPaint);
             }
             return;
         }
@@ -490,588 +447,30 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
             calculateOffsets();
             mOffsetsCalculated = true;
         }
-
-        if (mDrawBitmap == null || mDrawCanvas == null) {
-
-            mDrawBitmap = Bitmap.createBitmap(getWidth(), getHeight(),
-                    Bitmap.Config.ARGB_4444);
-            mDrawCanvas = new Canvas(mDrawBitmap);
-        }
-
-        // clear everything
-        mDrawBitmap.eraseColor(Color.TRANSPARENT);
-
-        // mDrawCanvas.drawColor(Color.WHITE);
-        // canvas.drawColor(Color.TRANSPARENT,
-        // android.graphics.PorterDuff.Mode.XOR); // clear all
     }
 
     /**
-     * sets up the content rect that restricts the chart surface
+     * the custom position of the description text
      */
-    protected void prepareContentRect() {
-
-        mContentRect.set(mOffsetLeft,
-                mOffsetTop,
-                getWidth() - mOffsetRight,
-                getHeight() - mOffsetBottom);
-    }
-
-    /**
-     * Generates an automatically prepared legend depending on the DataSets in
-     * the chart and their colors.
-     */
-    public void prepareLegend() {
-
-        ArrayList<String> labels = new ArrayList<String>();
-        ArrayList<Integer> colors = new ArrayList<Integer>();
-
-        // loop for building up the colors and labels used in the legend
-        for (int i = 0; i < mOriginalData.getDataSetCount(); i++) {
-
-            DataSet<? extends Entry> dataSet = mOriginalData.getDataSetByIndex(i);
-
-            ArrayList<Integer> clrs = dataSet.getColors();
-            int entryCount = dataSet.getEntryCount();
-
-            // if we have a barchart with stacked bars
-            if (dataSet instanceof BarDataSet && ((BarDataSet) dataSet).getStackSize() > 1) {
-
-                BarDataSet bds = (BarDataSet) dataSet;
-                String[] sLabels = bds.getStackLabels();
-
-                for (int j = 0; j < clrs.size() && j < entryCount && j < bds.getStackSize(); j++) {
-
-                    labels.add(sLabels[j % sLabels.length]);
-                    colors.add(clrs.get(j));
-                }
-
-                // add the legend description label
-                colors.add(-2);
-                labels.add(bds.getLabel());
-
-            } else if (dataSet instanceof PieDataSet) {
-
-                ArrayList<String> xVals = mOriginalData.getXVals();
-                PieDataSet pds = (PieDataSet) dataSet;
-
-                for (int j = 0; j < clrs.size() && j < entryCount && j < xVals.size(); j++) {
-
-                    labels.add(xVals.get(j));
-                    colors.add(clrs.get(j));
-                }
-
-                // add the legend description label
-                colors.add(-2);
-                labels.add(pds.getLabel());
-
-            } else { // all others
-
-                for (int j = 0; j < clrs.size() && j < entryCount; j++) {
-
-                    // if multiple colors are set for a DataSet, group them
-                    if (j < clrs.size() - 1 && j < entryCount - 1) {
-
-                        labels.add(null);
-                    } else { // add label to the last entry
-
-                        String label = mOriginalData.getDataSetByIndex(i).getLabel();
-                        labels.add(label);
-                    }
-
-                    colors.add(clrs.get(j));
-                }
-            }
-        }
-
-        Legend l = new Legend(colors, labels);
-
-        if (mLegend != null) {
-            // apply the old legend settings to a potential new legend
-            l.apply(mLegend);
-        }
-
-        mLegend = l;
-    }
-
-    /**
-     * Transforms an arraylist of Entry into a float array containing the x and
-     * y values transformed with all matrices for the LINECHART or SCATTERCHART.
-     * 
-     * @param entries
-     * @return
-     */
-    protected float[] generateTransformedValuesLineScatter(ArrayList<? extends Entry> entries) {
-
-        float[] valuePoints = new float[entries.size() * 2];
-
-        for (int j = 0; j < valuePoints.length; j += 2) {
-
-            Entry e = entries.get(j / 2);
-
-            valuePoints[j] = e.getXIndex();
-            valuePoints[j + 1] = e.getVal() * mPhaseY;
-        }
-
-        transformPointArray(valuePoints);
-
-        return valuePoints;
-    }
-
-    /**
-     * Transforms an arraylist of Entry into a float array containing the x and
-     * y values transformed with all matrices for the BARCHART.
-     * 
-     * @param entries
-     * @param dataSet the dataset index
-     * @return
-     */
-    protected float[] generateTransformedValuesBarChart(ArrayList<? extends Entry> entries,
-            int dataSet) {
-
-        float[] valuePoints = new float[entries.size() * 2];
-
-        int setCount = mOriginalData.getDataSetCount();
-        BarData bd = (BarData) mOriginalData;
-        float space = bd.getGroupSpace();
-
-        for (int j = 0; j < valuePoints.length; j += 2) {
-
-            Entry e = entries.get(j / 2);
-
-            // calculate the x-position, depending on datasetcount
-            float x = e.getXIndex() + (j / 2 * (setCount - 1)) + dataSet + 0.5f + space * (j / 2)
-                    + space / 2f;
-            float y = e.getVal();
-
-            valuePoints[j] = x;
-            valuePoints[j + 1] = y * mPhaseY;
-        }
-
-        transformPointArray(valuePoints);
-
-        return valuePoints;
-    }
-
-    /**
-     * transform a path with all the given matrices VERY IMPORTANT: keep order
-     * to value-touch-offset
-     * 
-     * @param path
-     */
-    protected void transformPath(Path path) {
-
-        path.transform(mMatrixValueToPx);
-        path.transform(mMatrixTouch);
-        path.transform(mMatrixOffset);
-    }
-
-    /**
-     * Transforms multiple paths will all matrices.
-     * 
-     * @param paths
-     */
-    protected void transformPaths(ArrayList<Path> paths) {
-
-        for (int i = 0; i < paths.size(); i++) {
-            transformPath(paths.get(i));
-        }
-    }
-
-    /**
-     * Transform an array of points with all matrices. VERY IMPORTANT: Keep
-     * matrix order "value-touch-offset" when transforming.
-     * 
-     * @param pts
-     */
-    protected void transformPointArray(float[] pts) {
-
-        mMatrixValueToPx.mapPoints(pts);
-        mMatrixTouch.mapPoints(pts);
-        mMatrixOffset.mapPoints(pts);
-    }
-
-    /**
-     * Transform a rectangle with all matrices.
-     * 
-     * @param r
-     */
-    protected void transformRect(RectF r) {
-
-        mMatrixValueToPx.mapRect(r);
-        mMatrixTouch.mapRect(r);
-        mMatrixOffset.mapRect(r);
-    }
-
-    /**
-     * Transform a rectangle with all matrices with potential animation phases.
-     * 
-     * @param r
-     */
-    protected void transformRectWithPhase(RectF r) {
-
-        // multiply the height of the rect with the phase
-        if (r.top > 0)
-            r.top *= mPhaseY;
-        else
-            r.bottom *= mPhaseY;
-
-        mMatrixValueToPx.mapRect(r);
-        mMatrixTouch.mapRect(r);
-        mMatrixOffset.mapRect(r);
-    }
-
-    /**
-     * transforms multiple rects with all matrices
-     * 
-     * @param rects
-     */
-    protected void transformRects(ArrayList<RectF> rects) {
-
-        for (int i = 0; i < rects.size(); i++)
-            transformRect(rects.get(i));
-    }
-
-    /**
-     * transforms the given rect objects with the touch matrix only
-     * 
-     * @param paths
-     */
-    protected void transformRectsTouch(ArrayList<RectF> rects) {
-        for (int i = 0; i < rects.size(); i++) {
-            mMatrixTouch.mapRect(rects.get(i));
-        }
-    }
-
-    /**
-     * transforms the given path objects with the touch matrix only
-     * 
-     * @param paths
-     */
-    protected void transformPathsTouch(ArrayList<Path> paths) {
-        for (int i = 0; i < paths.size(); i++) {
-            paths.get(i).transform(mMatrixTouch);
-        }
-    }
-
-    /**
-     * draws the legend
-     */
-    protected void drawLegend() {
-
-        if (!mDrawLegend || mLegend == null || mLegend.getPosition() == LegendPosition.NONE)
-            return;
-
-        String[] labels = mLegend.getLegendLabels();
-        Typeface tf = mLegend.getTypeface();
-
-        if (tf != null)
-            mLegendLabelPaint.setTypeface(tf);
-
-        mLegendLabelPaint.setTextSize(mLegend.getTextSize());
-        mLegendLabelPaint.setColor(mLegend.getTextColor());
-
-        float formSize = mLegend.getFormSize();
-
-        // space between text and shape/form of entry
-        float formTextSpaceAndForm = mLegend.getFormToTextSpace() + formSize;
-
-        // space between the entries
-        float stackSpace = mLegend.getStackSpace();
-
-        float textSize = mLegend.getTextSize();
-
-        // the amount of pixels the text needs to be set down to be on the same
-        // height as the form
-        float textDrop = (Utils.calcTextHeight(mLegendLabelPaint, "AQJ") + formSize) / 2f;
-
-        float posX, posY;
-
-        // contains the stacked legend size in pixels
-        float stack = 0f;
-
-        boolean wasStacked = false;
-
-        switch (mLegend.getPosition()) {
-            case BELOW_CHART_LEFT:
-
-                posX = mLegend.getOffsetLeft();
-                posY = getHeight() - mLegend.getOffsetBottom() / 2f - formSize / 2f;
-
-                for (int i = 0; i < labels.length; i++) {
-
-                    mLegend.drawForm(mDrawCanvas, posX, posY, mLegendFormPaint, i);
-
-                    // grouped forms have null labels
-                    if (labels[i] != null) {
-
-                        // make a step to the left
-                        if (mLegend.getColors()[i] != -2)
-                            posX += formTextSpaceAndForm;
-
-                        mLegend.drawLabel(mDrawCanvas, posX, posY + textDrop, mLegendLabelPaint, i);
-                        posX += Utils.calcTextWidth(mLegendLabelPaint, labels[i])
-                                + mLegend.getXEntrySpace();
-                    } else {
-                        posX += formSize + stackSpace;
-                    }
-                }
-
-                break;
-            case BELOW_CHART_RIGHT:
-
-                posX = getWidth() - getOffsetRight();
-                posY = getHeight() - mLegend.getOffsetBottom() / 2f - formSize / 2f;
-
-                for (int i = labels.length - 1; i >= 0; i--) {
-
-                    if (labels[i] != null) {
-
-                        posX -= Utils.calcTextWidth(mLegendLabelPaint, labels[i])
-                                + mLegend.getXEntrySpace();
-                        mLegend.drawLabel(mDrawCanvas, posX, posY + textDrop, mLegendLabelPaint, i);
-                        if (mLegend.getColors()[i] != -2)
-                            posX -= formTextSpaceAndForm;
-                    } else {
-                        posX -= stackSpace + formSize;
-                    }
-
-                    mLegend.drawForm(mDrawCanvas, posX, posY, mLegendFormPaint, i);
-                }
-
-                break;
-            case RIGHT_OF_CHART:
-
-                posX = getWidth() - mLegend.getMaximumEntryLength(mLegendLabelPaint)
-                        - formTextSpaceAndForm;
-                posY = mLegend.getOffsetTop();
-
-                for (int i = 0; i < labels.length; i++) {
-
-                    mLegend.drawForm(mDrawCanvas, posX + stack, posY, mLegendFormPaint, i);
-
-                    if (labels[i] != null) {
-
-                        if (!wasStacked) {
-
-                            float x = posX;
-
-                            if (mLegend.getColors()[i] != -2)
-                                x += formTextSpaceAndForm;
-
-                            posY += textDrop;
-
-                            mLegend.drawLabel(mDrawCanvas, x, posY,
-                                    mLegendLabelPaint, i);
-                        } else {
-
-                            posY += textSize * 1.2f + formSize;
-
-                            mLegend.drawLabel(mDrawCanvas, posX, posY,
-                                    mLegendLabelPaint, i);
-
-                        }
-
-                        // make a step down
-                        posY += mLegend.getYEntrySpace();
-                        stack = 0f;
-                    } else {
-                        stack += formSize + stackSpace;
-                        wasStacked = true;
-                    }
-                }
-                break;
-            case RIGHT_OF_CHART_CENTER:
-                posX = getWidth() - mLegend.getMaximumEntryLength(mLegendLabelPaint)
-                        - formTextSpaceAndForm;
-                posY = getHeight() / 2f - mLegend.getFullHeight(mLegendLabelPaint) / 2f;
-
-                for (int i = 0; i < labels.length; i++) {
-
-                    mLegend.drawForm(mDrawCanvas, posX + stack, posY, mLegendFormPaint, i);
-
-                    if (labels[i] != null) {
-
-                        if (!wasStacked) {
-
-                            float x = posX;
-
-                            if (mLegend.getColors()[i] != -2)
-                                x += formTextSpaceAndForm;
-
-                            posY += textDrop;
-
-                            mLegend.drawLabel(mDrawCanvas, x, posY,
-                                    mLegendLabelPaint, i);
-                        } else {
-
-                            posY += textSize * 1.2f + formSize;
-
-                            mLegend.drawLabel(mDrawCanvas, posX, posY,
-                                    mLegendLabelPaint, i);
-
-                        }
-
-                        // make a step down
-                        posY += mLegend.getYEntrySpace();
-                        stack = 0f;
-                    } else {
-                        stack += formSize + stackSpace;
-                        wasStacked = true;
-                    }
-                }
-
-                break;
-            case BELOW_CHART_CENTER:
-
-                float fullSize = mLegend.getFullWidth(mLegendLabelPaint);
-
-                posX = getWidth() / 2f - fullSize / 2f;
-                posY = getHeight() - mLegend.getOffsetBottom() / 2f - formSize / 2f;
-
-                for (int i = 0; i < labels.length; i++) {
-
-                    mLegend.drawForm(mDrawCanvas, posX, posY, mLegendFormPaint, i);
-
-                    // grouped forms have null labels
-                    if (labels[i] != null) {
-
-                        // make a step to the left
-                        if (mLegend.getColors()[i] != -2)
-                            posX += formTextSpaceAndForm;
-
-                        mLegend.drawLabel(mDrawCanvas, posX, posY + textDrop, mLegendLabelPaint, i);
-                        posX += Utils.calcTextWidth(mLegendLabelPaint, labels[i])
-                                + mLegend.getXEntrySpace();
-                    } else {
-                        posX += formSize + stackSpace;
-                    }
-                }
-
-                Log.i(LOG_TAG, "content bottom: " + mContentRect.bottom + ", height: "
-                        + getHeight() + ", posY: " + posY + ", formSize: " + formSize);
-
-                break;
-            case PIECHART_CENTER:
-
-                posX = getWidth()
-                        / 2f
-                        - (mLegend.getMaximumEntryLength(mLegendLabelPaint) + mLegend
-                                .getXEntrySpace())
-                        / 2f;
-                posY = getHeight() / 2f - mLegend.getFullHeight(mLegendLabelPaint) / 2f;
-
-                for (int i = 0; i < labels.length; i++) {
-
-                    mLegend.drawForm(mDrawCanvas, posX + stack, posY, mLegendFormPaint, i);
-
-                    if (labels[i] != null) {
-
-                        if (!wasStacked) {
-
-                            float x = posX;
-
-                            if (mLegend.getColors()[i] != -2)
-                                x += formTextSpaceAndForm;
-
-                            posY += textDrop;
-
-                            mLegend.drawLabel(mDrawCanvas, x, posY,
-                                    mLegendLabelPaint, i);
-                        } else {
-
-                            posY += textSize * 1.2f + formSize;
-
-                            mLegend.drawLabel(mDrawCanvas, posX, posY,
-                                    mLegendLabelPaint, i);
-
-                        }
-
-                        // make a step down
-                        posY += mLegend.getYEntrySpace();
-                        stack = 0f;
-                    } else {
-                        stack += formSize + stackSpace;
-                        wasStacked = true;
-                    }
-                }
-
-                break;
-            case RIGHT_OF_CHART_INSIDE:
-
-                posX = getWidth() - mLegend.getMaximumEntryLength(mLegendLabelPaint)
-                        - formTextSpaceAndForm;
-                posY = mLegend.getOffsetTop();
-
-                for (int i = 0; i < labels.length; i++) {
-
-                    mLegend.drawForm(mDrawCanvas, posX + stack, posY, mLegendFormPaint, i);
-
-                    if (labels[i] != null) {
-
-                        if (!wasStacked) {
-
-                            float x = posX;
-
-                            if (mLegend.getColors()[i] != -2)
-                                x += formTextSpaceAndForm;
-
-                            posY += textDrop;
-
-                            mLegend.drawLabel(mDrawCanvas, x, posY,
-                                    mLegendLabelPaint, i);
-                        } else {
-
-                            posY += textSize * 1.2f + formSize;
-
-                            mLegend.drawLabel(mDrawCanvas, posX, posY,
-                                    mLegendLabelPaint, i);
-
-                        }
-
-                        // make a step down
-                        posY += mLegend.getYEntrySpace();
-                        stack = 0f;
-                    } else {
-                        stack += formSize + stackSpace;
-                        wasStacked = true;
-                    }
-                }
-                break;
-            case NONE:
-                break;
-        }
-    }
+    private PointF mDescriptionPosition;
 
     /**
      * draws the description text in the bottom right corner of the chart
      */
-    protected void drawDescription() {
+    protected void drawDescription(Canvas c) {
 
-        mDrawCanvas
-                .drawText(mDescription, getWidth() - mOffsetRight - 10, getHeight() - mOffsetBottom
-                        - 10, mDescPaint);
+        if (!mDescription.equals("")) {
+
+            if (mDescriptionPosition == null) {
+
+                c.drawText(mDescription, getWidth() - mViewPortHandler.offsetRight() - 10,
+                        getHeight() - mViewPortHandler.offsetBottom()
+                                - 10, mDescPaint);
+            } else {
+                c.drawText(mDescription, mDescriptionPosition.x, mDescriptionPosition.y, mDescPaint);
+            }
+        }
     }
-
-    /**
-     * draws all the text-values to the chart
-     */
-    protected abstract void drawValues();
-
-    /**
-     * draws the actual data
-     */
-    protected abstract void drawData();
-
-    /**
-     * draws additional stuff, whatever that might be
-     */
-    protected abstract void drawAdditional();
-
-    /**
-     * draws the values of the chart that need highlightning
-     */
-    protected abstract void drawHighlights();
 
     /**
      * ################ ################ ################ ################
@@ -1082,18 +481,47 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
      * array of Highlight objects that reference the highlighted slices in the
      * chart
      */
-    protected Highlight[] mIndicesToHightlight = new Highlight[0];
+    protected Highlight[] mIndicesToHighlight;
+
+    /**
+     * Returns the array of currently highlighted values. This might a null or
+     * empty array if nothing is highlighted.
+     *
+     * @return
+     */
+    public Highlight[] getHighlighted() {
+        return mIndicesToHighlight;
+    }
+
+    /**
+     * Returns true if values can be highlighted via tap gesture, false if not.
+     *
+     * @return
+     */
+    public boolean isHighlightPerTapEnabled() {
+        return mHighLightPerTapEnabled;
+    }
+
+    /**
+     * Set this to false to prevent values from being highlighted by tap gesture.
+     * Values can still be highlighted via drag or programmatically. Default: true
+     *
+     * @param enabled
+     */
+    public void setHighlightPerTapEnabled(boolean enabled) {
+        mHighLightPerTapEnabled = enabled;
+    }
 
     /**
      * Returns true if there are values to highlight, false if there are no
      * values to highlight. Checks if the highlight array is null, has a length
      * of zero or if the first object is null.
-     * 
+     *
      * @return
      */
     public boolean valuesToHighlight() {
-        return mIndicesToHightlight == null || mIndicesToHightlight.length <= 0
-                || mIndicesToHightlight[0] == null ? false
+        return mIndicesToHighlight == null || mIndicesToHighlight.length <= 0
+                || mIndicesToHighlight[0] == null ? false
                 : true;
     }
 
@@ -1102,13 +530,19 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
      * null or an empty array to undo all highlighting. This should be used to
      * programmatically highlight values. This DOES NOT generate a callback to
      * the OnChartValueSelectedListener.
-     * 
+     *
      * @param highs
      */
     public void highlightValues(Highlight[] highs) {
 
         // set the indices to highlight
-        mIndicesToHightlight = highs;
+        mIndicesToHighlight = highs;
+
+        if (highs == null || highs.length <= 0 || highs[0] == null) {
+            mChartTouchListener.setLastHighlighted(null);
+        } else {
+            mChartTouchListener.setLastHighlighted(highs[0]);
+        }
 
         // redraw the chart
         invalidate();
@@ -1116,59 +550,94 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
 
     /**
      * Highlights the value at the given x-index in the given DataSet. Provide
-     * -1 as the x-index to undo all highlighting.
-     * 
+     * -1 as the x-index or dataSetIndex to undo all highlighting.
+     *
      * @param xIndex
      * @param dataSetIndex
      */
     public void highlightValue(int xIndex, int dataSetIndex) {
 
-        if (xIndex < 0 || dataSetIndex < 0 || xIndex >= mOriginalData.getXValCount()
-                || dataSetIndex >= mOriginalData.getDataSetCount()) {
+        if (xIndex < 0 || dataSetIndex < 0 || xIndex >= mData.getXValCount()
+                || dataSetIndex >= mData.getDataSetCount()) {
 
             highlightValues(null);
         } else {
-            highlightValues(new Highlight[] {
+            highlightValues(new Highlight[]{
                     new Highlight(xIndex, dataSetIndex)
             });
         }
     }
 
     /**
+     * Highlights the values represented by the provided Highlight object
+     * This DOES NOT generate a callback to the OnChartValueSelectedListener.
+     *
+     * @param highlight contains information about which entry should be highlighted
+     */
+    public void highlightValue(Highlight highlight) {
+        highlightValue(highlight, false);
+    }
+
+    /**
      * Highlights the value selected by touch gesture. Unlike
      * highlightValues(...), this generates a callback to the
      * OnChartValueSelectedListener.
-     * 
-     * @param highs
+     *
+     * @param high         - the highlight object
+     * @param callListener - call the listener
      */
-    public void highlightTouch(Highlight high) {
+    public void highlightValue(Highlight high, boolean callListener) {
+
+        Entry e = null;
 
         if (high == null)
-            mIndicesToHightlight = null;
+            mIndicesToHighlight = null;
         else {
 
-            // set the indices to highlight
-            mIndicesToHightlight = new Highlight[] {
-                    high
-            };
+            if (mLogEnabled)
+                Log.i(LOG_TAG, "Highlighted: " + high.toString());
+
+            e = mData.getEntryForHighlight(high);
+            if (e == null || e.getXIndex() != high.getXIndex()) {
+                mIndicesToHighlight = null;
+                high = null;
+            } else {
+                // set the indices to highlight
+                mIndicesToHighlight = new Highlight[]{
+                        high
+                };
+            }
         }
 
-        // redraw the chart
-        invalidate();
-
-        if (mSelectionListener != null) {
+        if (callListener && mSelectionListener != null) {
 
             if (!valuesToHighlight())
                 mSelectionListener.onNothingSelected();
             else {
-
-                Entry e = getEntryByDataSetIndex(high.getXIndex(),
-                        high.getDataSetIndex());
-
                 // notify the listener
-                mSelectionListener.onValueSelected(e, high.getDataSetIndex());
+                mSelectionListener.onValueSelected(e, high.getDataSetIndex(), high);
             }
         }
+        // redraw the chart
+        invalidate();
+    }
+
+    /**
+     * Deprecated. Calls highlightValue(high, true)
+     */
+    @Deprecated
+    public void highlightTouch(Highlight high) {
+        highlightValue(high, true);
+    }
+
+    /**
+     * Set a new (e.g. custom) ChartTouchListener NOTE: make sure to
+     * setTouchEnabled(true); if you need touch gestures on the chart
+     *
+     * @param l
+     */
+    public void setOnTouchListener(ChartTouchListener l) {
+        this.mChartTouchListener = l;
     }
 
     /**
@@ -1176,49 +645,66 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
      */
     /** BELOW CODE IS FOR THE MARKER VIEW */
 
-    /** if set to true, the marker view is drawn when a value is clicked */
+    /**
+     * if set to true, the marker view is drawn when a value is clicked
+     */
     protected boolean mDrawMarkerViews = true;
 
-    /** the view that represents the marker */
+    /**
+     * the view that represents the marker
+     */
     protected MarkerView mMarkerView;
 
     /**
      * draws all MarkerViews on the highlighted positions
      */
-    protected void drawMarkers() {
+    protected void drawMarkers(Canvas canvas) {
 
         // if there is no marker view or drawing marker is disabled
         if (mMarkerView == null || !mDrawMarkerViews || !valuesToHighlight())
             return;
 
-        for (int i = 0; i < mIndicesToHightlight.length; i++) {
+        for (int i = 0; i < mIndicesToHighlight.length; i++) {
 
-            int xIndex = mIndicesToHightlight[i].getXIndex();
-            int dataSetIndex = mIndicesToHightlight[i].getDataSetIndex();
+            Highlight highlight = mIndicesToHighlight[i];
+            int xIndex = highlight.getXIndex();
+            int dataSetIndex = highlight.getDataSetIndex();
 
-            if (xIndex <= mDeltaX && xIndex <= mDeltaX * mPhaseX) {
+            if (xIndex <= mDeltaX && xIndex <= mDeltaX * mAnimator.getPhaseX()) {
 
-                Entry e = getEntryByDataSetIndex(xIndex, dataSetIndex);
+                Entry e = mData.getEntryForHighlight(mIndicesToHighlight[i]);
 
                 // make sure entry not null
-                if (e == null)
+                if (e == null || e.getXIndex() != mIndicesToHighlight[i].getXIndex())
                     continue;
 
-                float[] pos = getMarkerPosition(e, dataSetIndex);
+                float[] pos = getMarkerPosition(e, highlight);
 
                 // check bounds
-                if (pos[0] < mOffsetLeft || pos[0] > getWidth() - mOffsetRight
-                        || pos[1] < mOffsetTop || pos[1] > getHeight() - mOffsetBottom)
+                if (!mViewPortHandler.isInBounds(pos[0], pos[1]))
                     continue;
 
                 // callbacks to update the content
-                mMarkerView.refreshContent(e, dataSetIndex);
+                mMarkerView.refreshContent(e, highlight);
+
+                // mMarkerView.measure(MeasureSpec.makeMeasureSpec(0,
+                // MeasureSpec.UNSPECIFIED),
+                // MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                // mMarkerView.layout(0, 0, mMarkerView.getMeasuredWidth(),
+                // mMarkerView.getMeasuredHeight());
+                // mMarkerView.draw(mDrawCanvas, pos[0], pos[1]);
 
                 mMarkerView.measure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
                         MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
                 mMarkerView.layout(0, 0, mMarkerView.getMeasuredWidth(),
                         mMarkerView.getMeasuredHeight());
-                mMarkerView.draw(mDrawCanvas, pos[0], pos[1]);
+
+                if (pos[1] - mMarkerView.getHeight() <= 0) {
+                    float y = mMarkerView.getHeight() - pos[1];
+                    mMarkerView.draw(canvas, pos[0], pos[1] + y);
+                } else {
+                    mMarkerView.draw(canvas, pos[0], pos[1]);
+                }
             }
         }
     }
@@ -1226,210 +712,210 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     /**
      * Returns the actual position in pixels of the MarkerView for the given
      * Entry in the given DataSet.
-     * 
-     * @param xIndex
-     * @param dataSetIndex
+     *
+     * @param e
+     * @param highlight
      * @return
      */
-    private float[] getMarkerPosition(Entry e, int dataSetIndex) {
+    protected abstract float[] getMarkerPosition(Entry e, Highlight highlight);
 
-        float xPos = (float) e.getXIndex();
+    /**
+     * ################ ################ ################ ################
+     * ANIMATIONS ONLY WORK FOR API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     */
+    /** CODE BELOW THIS RELATED TO ANIMATION */
 
-        // make sure the marker is in the center of the bars in BarChart and
-        // CandleStickChart
-        if (this instanceof CandleStickChart)
-            xPos += 0.5f;
+    /**
+     * Returns the animator responsible for animating chart values.
+     *
+     * @return
+     */
+    public ChartAnimator getAnimator() {
+        return mAnimator;
+    }
 
-        else if (this instanceof BarChart) {
+    /**
+     * If set to true, chart continues to scroll after touch up default: true
+     */
+    public boolean isDragDecelerationEnabled() {
+        return mDragDecelerationEnabled;
+    }
 
-            BarData bd = (BarData) mCurrentData;
-            float space = bd.getGroupSpace();
-            float j = mCurrentData.getDataSetByIndex(dataSetIndex)
-                    .getEntryPosition(e);
+    /**
+     * If set to true, chart continues to scroll after touch up. Default: true.
+     *
+     * @param enabled
+     */
+    public void setDragDecelerationEnabled(boolean enabled) {
+        mDragDecelerationEnabled = enabled;
+    }
 
-            float x = (j * (mCurrentData.getDataSetCount() - 1)) + dataSetIndex + space * j + space
-                    / 2f + 0.5f;
+    /**
+     * Returns drag deceleration friction coefficient
+     *
+     * @return
+     */
+    public float getDragDecelerationFrictionCoef() {
+        return mDragDecelerationFrictionCoef;
+    }
 
-            xPos += x;
-        } else if (this instanceof RadarChart) {
+    /**
+     * Deceleration friction coefficient in [0 ; 1] interval, higher values
+     * indicate that speed will decrease slowly, for example if it set to 0, it
+     * will stop immediately. 1 is an invalid value, and will be converted to
+     * 0.999f automatically.
+     *
+     * @param newValue
+     */
+    public void setDragDecelerationFrictionCoef(float newValue) {
 
-            RadarChart rc = (RadarChart) this;
-            float angle = rc.getSliceAngle() * e.getXIndex() + rc.getRotationAngle();
-            float val = e.getVal() * rc.getFactor();
-            PointF c = getCenterOffsets();
+        if (newValue < 0.f)
+            newValue = 0.f;
 
-            PointF p = new PointF((float) (c.x + val * Math.cos(Math.toRadians(angle))),
-                    (float) (c.y + val * Math.sin(Math.toRadians(angle))));
+        if (newValue >= 1f)
+            newValue = 0.999f;
 
-            return new float[] {
-                    p.x, p.y
-            };
-        }
-
-        // position of the marker depends on selected value index and value
-        float[] pts = new float[] {
-                xPos, e.getVal() * mPhaseY
-        };
-
-        transformPointArray(pts);
-
-        return pts;
+        mDragDecelerationFrictionCoef = newValue;
     }
 
     /**
      * ################ ################ ################ ################
-     * Animation support below Honeycomb thanks to Jake Wharton's awesome
-     * nineoldandroids library: https://github.com/JakeWharton/NineOldAndroids
+     * ANIMATIONS ONLY WORK FOR API LEVEL 11 (Android 3.0.x) AND HIGHER.
      */
-    /** CODE BELOW THIS RELATED TO ANIMATION */
-
-    /** the phase that is animated and influences the drawn values on the y-axis */
-    protected float mPhaseY = 1f;
-
-    /** the phase that is animated and influences the drawn values on the x-axis */
-    protected float mPhaseX = 1f;
-
-    /** objectanimator used for animating values on y-axis */
-    private ObjectAnimator mAnimatorY;
-
-    /** objectanimator used for animating values on x-axis */
-    private ObjectAnimator mAnimatorX;
+    /** CODE BELOW FOR PROVIDING EASING FUNCTIONS */
 
     /**
      * Animates the drawing / rendering of the chart on both x- and y-axis with
      * the specified animation time. If animate(...) is called, no further
-     * calling of invalidate() is necessary to refresh the chart.
-     * 
+     * calling of invalidate() is necessary to refresh the chart. ANIMATIONS
+     * ONLY WORK FOR API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     *
      * @param durationMillisX
      * @param durationMillisY
+     * @param easingX         a custom easing function to be used on the animation phase
+     * @param easingY         a custom easing function to be used on the animation phase
      */
-    public void animateXY(int durationMillisX, int durationMillisY) {
-
-        mAnimatorY = ObjectAnimator.ofFloat(this, "phaseY", 0f, 1f);
-        mAnimatorY.setDuration(
-                durationMillisY);
-        mAnimatorX = ObjectAnimator.ofFloat(this, "phaseX", 0f, 1f);
-        mAnimatorX.setDuration(
-                durationMillisX);
-
-        // make sure only one animator produces update-callbacks (which then
-        // call invalidate())
-        if (durationMillisX > durationMillisY) {
-            mAnimatorX.addUpdateListener(this);
-        } else {
-            mAnimatorY.addUpdateListener(this);
-        }
-
-        mAnimatorX.start();
-        mAnimatorY.start();
+    public void animateXY(int durationMillisX, int durationMillisY, EasingFunction easingX,
+                          EasingFunction easingY) {
+        mAnimator.animateXY(durationMillisX, durationMillisY, easingX, easingY);
     }
 
     /**
      * Animates the rendering of the chart on the x-axis with the specified
      * animation time. If animate(...) is called, no further calling of
-     * invalidate() is necessary to refresh the chart.
-     * 
+     * invalidate() is necessary to refresh the chart. ANIMATIONS ONLY WORK FOR
+     * API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     *
      * @param durationMillis
+     * @param easing         a custom easing function to be used on the animation phase
      */
-    public void animateX(int durationMillis) {
-
-        mAnimatorX = ObjectAnimator.ofFloat(this, "phaseX", 0f, 1f);
-        mAnimatorX.setDuration(durationMillis);
-        mAnimatorX.addUpdateListener(this);
-        mAnimatorX.start();
+    public void animateX(int durationMillis, EasingFunction easing) {
+        mAnimator.animateX(durationMillis, easing);
     }
 
     /**
      * Animates the rendering of the chart on the y-axis with the specified
      * animation time. If animate(...) is called, no further calling of
-     * invalidate() is necessary to refresh the chart.
-     * 
+     * invalidate() is necessary to refresh the chart. ANIMATIONS ONLY WORK FOR
+     * API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     *
      * @param durationMillis
+     * @param easing         a custom easing function to be used on the animation phase
      */
-    public void animateY(int durationMillis) {
-
-        mAnimatorY = ObjectAnimator.ofFloat(this, "phaseY", 0f, 1f);
-        mAnimatorY.setDuration(durationMillis);
-        mAnimatorY.addUpdateListener(this);
-        mAnimatorY.start();
-    }
-
-    @Override
-    public void onAnimationUpdate(ValueAnimator va) {
-
-        // redraw everything after animation value change
-        invalidate();
-
-        // Log.i(LOG_TAG, "UPDATING, x: " + mPhaseX + ", y: " + mPhaseY);
-    }
-
-    /**
-     * This gets the y-phase that is used to animate the values.
-     * 
-     * @return
-     */
-    public float getPhaseY() {
-        return mPhaseY;
-    }
-
-    /**
-     * This modifys the y-phase that is used to animate the values.
-     * 
-     * @param phase
-     */
-    public void setPhaseY(float phase) {
-        mPhaseY = phase;
-    }
-
-    /**
-     * This gets the x-phase that is used to animate the values.
-     * 
-     * @return
-     */
-    public float getPhaseX() {
-        return mPhaseX;
-    }
-
-    /**
-     * This modifys the x-phase that is used to animate the values.
-     * 
-     * @param phase
-     */
-    public void setPhaseX(float phase) {
-        mPhaseX = phase;
+    public void animateY(int durationMillis, EasingFunction easing) {
+        mAnimator.animateY(durationMillis, easing);
     }
 
     /**
      * ################ ################ ################ ################
+     * ANIMATIONS ONLY WORK FOR API LEVEL 11 (Android 3.0.x) AND HIGHER.
      */
-    /** BELOW THIS FOR DYNAMICALLY ADDING ENTRIES AND DATASETS */
+    /** CODE BELOW FOR PREDEFINED EASING OPTIONS */
 
-    // public void addEntry(Entry e, int dataSetIndex) {
-    // mOriginalData.getDataSetByIndex(dataSetIndex).addEntry(e);
-    //
-    // prepare();
-    // calcMinMax(false);
-    // prepareMatrix();
-    // calculateOffsets();
-    // }
-    //
-    // public void addEntry(Entry e, String label) {
-    // mOriginalData.getDataSetByLabel(label, false).addEntry(e);
-    //
-    // prepare();
-    // calcMinMax(false);
-    // prepareMatrix();
-    // calculateOffsets();
-    // }
-    //
-    // public void addDataSet(DataSet d) {
-    // mOriginalData.addDataSet(d);
-    //
-    // prepare();
-    // calcMinMax(false);
-    // prepareMatrix();
-    // calculateOffsets();
-    // }
+    /**
+     * Animates the drawing / rendering of the chart on both x- and y-axis with
+     * the specified animation time. If animate(...) is called, no further
+     * calling of invalidate() is necessary to refresh the chart. ANIMATIONS
+     * ONLY WORK FOR API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     *
+     * @param durationMillisX
+     * @param durationMillisY
+     * @param easingX         a predefined easing option
+     * @param easingY         a predefined easing option
+     */
+    public void animateXY(int durationMillisX, int durationMillisY, Easing.EasingOption easingX,
+                          Easing.EasingOption easingY) {
+        mAnimator.animateXY(durationMillisX, durationMillisY, easingX, easingY);
+    }
+
+    /**
+     * Animates the rendering of the chart on the x-axis with the specified
+     * animation time. If animate(...) is called, no further calling of
+     * invalidate() is necessary to refresh the chart. ANIMATIONS ONLY WORK FOR
+     * API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     *
+     * @param durationMillis
+     * @param easing         a predefined easing option
+     */
+    public void animateX(int durationMillis, Easing.EasingOption easing) {
+        mAnimator.animateX(durationMillis, easing);
+    }
+
+    /**
+     * Animates the rendering of the chart on the y-axis with the specified
+     * animation time. If animate(...) is called, no further calling of
+     * invalidate() is necessary to refresh the chart. ANIMATIONS ONLY WORK FOR
+     * API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     *
+     * @param durationMillis
+     * @param easing         a predefined easing option
+     */
+    public void animateY(int durationMillis, Easing.EasingOption easing) {
+        mAnimator.animateY(durationMillis, easing);
+    }
+
+    /**
+     * ################ ################ ################ ################
+     * ANIMATIONS ONLY WORK FOR API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     */
+    /** CODE BELOW FOR ANIMATIONS WITHOUT EASING */
+
+    /**
+     * Animates the rendering of the chart on the x-axis with the specified
+     * animation time. If animate(...) is called, no further calling of
+     * invalidate() is necessary to refresh the chart. ANIMATIONS ONLY WORK FOR
+     * API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     *
+     * @param durationMillis
+     */
+    public void animateX(int durationMillis) {
+        mAnimator.animateX(durationMillis);
+    }
+
+    /**
+     * Animates the rendering of the chart on the y-axis with the specified
+     * animation time. If animate(...) is called, no further calling of
+     * invalidate() is necessary to refresh the chart. ANIMATIONS ONLY WORK FOR
+     * API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     *
+     * @param durationMillis
+     */
+    public void animateY(int durationMillis) {
+        mAnimator.animateY(durationMillis);
+    }
+
+    /**
+     * Animates the drawing / rendering of the chart on both x- and y-axis with
+     * the specified animation time. If animate(...) is called, no further
+     * calling of invalidate() is necessary to refresh the chart. ANIMATIONS
+     * ONLY WORK FOR API LEVEL 11 (Android 3.0.x) AND HIGHER.
+     *
+     * @param durationMillisX
+     * @param durationMillisY
+     */
+    public void animateXY(int durationMillisX, int durationMillisY) {
+        mAnimator.animateXY(durationMillisX, durationMillisY);
+    }
 
     /**
      * ################ ################ ################ ################
@@ -1437,17 +923,18 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     /** BELOW THIS ONLY GETTERS AND SETTERS */
 
     /**
-     * Returns the canvas object the chart uses for drawing.
-     * 
+     * Returns the default ValueFormatter that has been determined by the chart
+     * considering the provided minimum and maximum values.
+     *
      * @return
      */
-    public Canvas getCanvas() {
-        return mDrawCanvas;
+    public ValueFormatter getDefaultValueFormatter() {
+        return mDefaultFormatter;
     }
 
     /**
      * set a selection listener for the chart
-     * 
+     *
      * @param l
      */
     public void setOnChartValueSelectedListener(OnChartValueSelectedListener l) {
@@ -1457,7 +944,7 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     /**
      * Sets a gesture-listener for the chart for custom callbacks when executing
      * gestures on the chart surface.
-     * 
+     *
      * @param l
      */
     public void setOnChartGestureListener(OnChartGestureListener l) {
@@ -1466,7 +953,7 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
 
     /**
      * Returns the custom gesture listener.
-     * 
+     *
      * @return
      */
     public OnChartGestureListener getOnChartGestureListener() {
@@ -1474,114 +961,50 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     }
 
     /**
-     * If set to true, value highlighting is enabled which means that values can
-     * be highlighted programmatically or by touch gesture.
-     * 
-     * @param enabled
-     */
-    public void setHighlightEnabled(boolean enabled) {
-        mHighlightEnabled = enabled;
-    }
-
-    /**
-     * returns true if highlighting of values is enabled, false if not
-     * 
-     * @return
-     */
-    public boolean isHighlightEnabled() {
-        return mHighlightEnabled;
-    }
-
-    /**
-     * returns the total value (sum) of all y-values across all DataSets
-     * 
-     * @return
-     */
-    public float getYValueSum() {
-        return mCurrentData.getYValueSum();
-    }
-
-    /**
      * returns the current y-max value across all DataSets
-     * 
+     *
      * @return
      */
     public float getYMax() {
-        return mCurrentData.getYMax();
-    }
-
-    /**
-     * returns the lowest value the chart can display
-     * 
-     * @return
-     */
-    public float getYChartMin() {
-        return mYChartMin;
-    }
-
-    /**
-     * returns the highest value the chart can display
-     * 
-     * @return
-     */
-    public float getYChartMax() {
-        return mYChartMax;
+        return mData.getYMax();
     }
 
     /**
      * returns the current y-min value across all DataSets
-     * 
+     *
      * @return
      */
     public float getYMin() {
-        return mCurrentData.getYMin();
+        return mData.getYMin();
+    }
+
+    @Override
+    public float getXChartMax() {
+        return mXChartMax;
+    }
+
+    @Override
+    public float getXChartMin() {
+        return mXChartMin;
+    }
+
+    @Override
+    public int getXValCount() {
+        return mData.getXValCount();
     }
 
     /**
-     * Get the total number of X-values.
-     * 
-     * @return
-     */
-    public float getDeltaX() {
-        return mDeltaX;
-    }
-
-    /**
-     * returns the average value of all values the chart holds
-     * 
-     * @return
-     */
-    public float getAverage() {
-        return getYValueSum() / mCurrentData.getYValCount();
-    }
-
-    /**
-     * returns the average value for a specific DataSet (with a specific label)
-     * in the chart
-     * 
-     * @param dataSetLabel
-     * @return
-     */
-    public float getAverage(String dataSetLabel) {
-
-        DataSet<? extends Entry> ds = mCurrentData.getDataSetByLabel(dataSetLabel, true);
-
-        return ds.getYValueSum()
-                / ds.getEntryCount();
-    }
-
-    /**
-     * returns the total number of values the chart holds (across all DataSets)
-     * 
+     * Returns the total number of (y) values the chart holds (across all DataSets).
+     *
      * @return
      */
     public int getValueCount() {
-        return mCurrentData.getYValCount();
+        return mData.getYValCount();
     }
 
     /**
      * Returns the center point of the chart (the whole View) in pixels.
-     * 
+     *
      * @return
      */
     public PointF getCenter() {
@@ -1591,32 +1014,145 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     /**
      * Returns the center of the chart taking offsets under consideration.
      * (returns the center of the content rectangle)
-     * 
+     *
      * @return
      */
+    @Override
     public PointF getCenterOffsets() {
-        return new PointF(mContentRect.centerX(), mContentRect.centerY());
+        return mViewPortHandler.getContentCenter();
     }
 
     /**
-     * sets the size of the description text in pixels, min 7f, max 14f
-     * 
+     * set a description text that appears in the bottom right corner of the
+     * chart, size = Y-legend text size
+     *
+     * @param desc
+     */
+    public void setDescription(String desc) {
+        if (desc == null)
+            desc = "";
+        this.mDescription = desc;
+    }
+
+    /**
+     * Sets a custom position for the description text in pixels on the screen.
+     *
+     * @param x - xcoordinate
+     * @param y - ycoordinate
+     */
+    public void setDescriptionPosition(float x, float y) {
+        mDescriptionPosition = new PointF(x, y);
+    }
+
+    /**
+     * sets the typeface for the description paint
+     *
+     * @param t
+     */
+    public void setDescriptionTypeface(Typeface t) {
+        mDescPaint.setTypeface(t);
+    }
+
+    /**
+     * sets the size of the description text in pixels, min 6f, max 16f
+     *
      * @param size
      */
     public void setDescriptionTextSize(float size) {
 
-        if (size > 14f)
-            size = 14f;
-        if (size < 7f)
-            size = 7f;
+        if (size > 16f)
+            size = 16f;
+        if (size < 6f)
+            size = 6f;
 
-        mInfoPaint.setTextSize(Utils.convertDpToPixel(size));
+        mDescPaint.setTextSize(Utils.convertDpToPixel(size));
     }
 
     /**
-     * Set this to true to enable logcat outputs for the chart. Default:
-     * disabled
-     * 
+     * Sets the color of the description text.
+     *
+     * @param color
+     */
+    public void setDescriptionColor(int color) {
+        mDescPaint.setColor(color);
+    }
+
+    /**
+     * Sets extra offsets (around the chart view) to be appended to the
+     * auto-calculated offsets.
+     *
+     * @param left
+     * @param top
+     * @param right
+     * @param bottom
+     */
+    public void setExtraOffsets(float left, float top, float right, float bottom) {
+        setExtraLeftOffset(left);
+        setExtraTopOffset(top);
+        setExtraRightOffset(right);
+        setExtraBottomOffset(bottom);
+    }
+
+    /**
+     * Set an extra offset to be appended to the viewport's top
+     */
+    public void setExtraTopOffset(float offset) {
+        mExtraTopOffset = Utils.convertDpToPixel(offset);
+    }
+
+    /**
+     * @return the extra offset to be appended to the viewport's top
+     */
+    public float getExtraTopOffset() {
+        return mExtraTopOffset;
+    }
+
+    /**
+     * Set an extra offset to be appended to the viewport's right
+     */
+    public void setExtraRightOffset(float offset) {
+        mExtraRightOffset = Utils.convertDpToPixel(offset);
+    }
+
+    /**
+     * @return the extra offset to be appended to the viewport's right
+     */
+    public float getExtraRightOffset() {
+        return mExtraRightOffset;
+    }
+
+    /**
+     * Set an extra offset to be appended to the viewport's bottom
+     */
+    public void setExtraBottomOffset(float offset) {
+        mExtraBottomOffset = Utils.convertDpToPixel(offset);
+    }
+
+    /**
+     * @return the extra offset to be appended to the viewport's bottom
+     */
+    public float getExtraBottomOffset() {
+        return mExtraBottomOffset;
+    }
+
+    /**
+     * Set an extra offset to be appended to the viewport's left
+     */
+    public void setExtraLeftOffset(float offset) {
+        mExtraLeftOffset = Utils.convertDpToPixel(offset);
+    }
+
+    /**
+     * @return the extra offset to be appended to the viewport's left
+     */
+    public float getExtraLeftOffset() {
+        return mExtraLeftOffset;
+    }
+
+    /**
+     * Set this to true to enable logcat outputs for the chart. Beware that
+     * logcat output decreases rendering performance. Default: disabled.
+     *
      * @param enabled
      */
     public void setLogEnabled(boolean enabled) {
@@ -1624,19 +1160,18 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     }
 
     /**
-     * set a description text that appears in the bottom right corner of the
-     * chart, size = Y-legend text size
-     * 
-     * @param desc
+     * Returns true if log-output is enabled for the chart, fals if not.
+     *
+     * @return
      */
-    public void setDescription(String desc) {
-        this.mDescription = desc;
+    public boolean isLogEnabled() {
+        return mLogEnabled;
     }
 
     /**
      * Sets the text that informs the user that there is no data available with
      * which to draw the chart.
-     * 
+     *
      * @param text
      */
     public void setNoDataText(String text) {
@@ -1646,7 +1181,7 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     /**
      * Sets descriptive text to explain to the user why there is no chart
      * available Defaults to empty if not set
-     * 
+     *
      * @param text
      */
     public void setNoDataTextDescription(String text) {
@@ -1654,43 +1189,9 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     }
 
     /**
-     * Sets the offsets from the border of the view to the actual chart in every
-     * direction manually. Provide density pixels -> they are then rendered to
-     * pixels inside the chart
-     * 
-     * @param left
-     * @param right
-     * @param top
-     * @param bottom
-     */
-    public void setOffsets(float left, float top, float right, float bottom) {
-
-        mOffsetBottom = Utils.convertDpToPixel(bottom);
-        mOffsetLeft = Utils.convertDpToPixel(left);
-        mOffsetRight = Utils.convertDpToPixel(right);
-        mOffsetTop = Utils.convertDpToPixel(top);
-    }
-
-    public float getOffsetLeft() {
-        return mOffsetLeft;
-    }
-
-    public float getOffsetBottom() {
-        return mOffsetBottom;
-    }
-
-    public float getOffsetRight() {
-        return mOffsetRight;
-    }
-
-    public float getOffsetTop() {
-        return mOffsetTop;
-    }
-
-    /**
      * Set this to false to disable all gestures and touches on the chart,
      * default: true
-     * 
+     *
      * @param enabled
      */
     public void setTouchEnabled(boolean enabled) {
@@ -1698,19 +1199,8 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     }
 
     /**
-     * set this to true to draw y-values on the chart NOTE (for bar and
-     * linechart): if "maxvisiblecount" is reached, no values will be drawn even
-     * if this is enabled
-     * 
-     * @param enabled
-     */
-    public void setDrawYValues(boolean enabled) {
-        this.mDrawYValues = enabled;
-    }
-
-    /**
      * sets the view that is displayed when a value is clicked on the chart
-     * 
+     *
      * @param v
      */
     public void setMarkerView(MarkerView v) {
@@ -1719,7 +1209,7 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
 
     /**
      * returns the view that is set as a marker view for the chart
-     * 
+     *
      * @return
      */
     public MarkerView getMarkerView() {
@@ -1727,56 +1217,10 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     }
 
     /**
-     * if set to true, units are drawn next to values in the chart, default:
-     * false
-     * 
-     * @param enabled
-     */
-    public void setDrawUnitsInChart(boolean enabled) {
-        mDrawUnitInChart = enabled;
-    }
-
-    /**
-     * sets the unit that is drawn next to the values in the chart, e.g. %
-     * 
-     * @param unit
-     */
-    public void setUnit(String unit) {
-        mUnit = unit;
-    }
-
-    /**
-     * Returns the unit that is used for the values in the chart
-     * 
-     * @return
-     */
-    public String getUnit() {
-        return mUnit;
-    }
-
-    /**
-     * set this to true to draw the legend, false if not
-     * 
-     * @param enabled
-     */
-    public void setDrawLegend(boolean enabled) {
-        mDrawLegend = enabled;
-    }
-
-    /**
-     * returns true if drawing the legend is enabled, false if not
-     * 
-     * @return
-     */
-    public boolean isDrawLegendEnabled() {
-        return mDrawLegend;
-    }
-
-    /**
-     * Returns the legend object of the chart. This method can be used to
-     * customize the automatically generated legend. IMPORTANT: this will return
-     * null if no data has been set for the chart when calling this method
-     * 
+     * Returns the Legend object of the chart. This method can be used to get an
+     * instance of the legend in order to customize the automatically generated
+     * Legend.
+     *
      * @return
      */
     public Legend getLegend() {
@@ -1784,13 +1228,24 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     }
 
     /**
-     * Returns the rectangle that defines the borders of the chart-value surface
-     * (into which the actual values are drawn).
-     * 
+     * Returns the renderer object responsible for rendering / drawing the
+     * Legend.
+     *
      * @return
      */
+    public LegendRenderer getLegendRenderer() {
+        return mLegendRenderer;
+    }
+
+    /**
+     * Returns the rectangle that defines the borders of the chart-value surface
+     * (into which the actual values are drawn).
+     *
+     * @return
+     */
+    @Override
     public RectF getContentRect() {
-        return mContentRect;
+        return mViewPortHandler.getContentRect();
     }
 
     /**
@@ -1798,7 +1253,8 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
      */
     public void disableScroll() {
         ViewParent parent = getParent();
-        parent.requestDisallowInterceptTouchEvent(true);
+        if (parent != null)
+            parent.requestDisallowInterceptTouchEvent(true);
     }
 
     /**
@@ -1806,20 +1262,14 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
      */
     public void enableScroll() {
         ViewParent parent = getParent();
-        parent.requestDisallowInterceptTouchEvent(false);
+        if (parent != null)
+            parent.requestDisallowInterceptTouchEvent(false);
     }
 
-    /** paint for the grid lines (only line and barchart) */
-    public static final int PAINT_GRID = 3;
-
-    /** paint for the grid background (only line and barchart) */
+    /**
+     * paint for the grid background (only line and barchart)
+     */
     public static final int PAINT_GRID_BACKGROUND = 4;
-
-    /** paint for the y-legend values (only line and barchart) */
-    public static final int PAINT_YLABEL = 5;
-
-    /** paint for the x-legend values (only line and barchart) */
-    public static final int PAINT_XLABEL = 6;
 
     /**
      * paint for the info text that is displayed when there are no values in the
@@ -1827,46 +1277,33 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
      */
     public static final int PAINT_INFO = 7;
 
-    /** paint for the value text */
-    public static final int PAINT_VALUES = 8;
-
-    /** paint for the inner circle (linechart) */
-    public static final int PAINT_CIRCLES_INNER = 10;
-
-    /** paint for the description text in the bottom right corner */
+    /**
+     * paint for the description text in the bottom right corner
+     */
     public static final int PAINT_DESCRIPTION = 11;
 
-    /** paint for the line surrounding the chart (only line and barchart) */
-    public static final int PAINT_BORDER = 12;
-
-    /** paint for the hole in the middle of the pie chart */
+    /**
+     * paint for the hole in the middle of the pie chart
+     */
     public static final int PAINT_HOLE = 13;
 
-    /** paint for the text in the middle of the pie chart */
+    /**
+     * paint for the text in the middle of the pie chart
+     */
     public static final int PAINT_CENTER_TEXT = 14;
 
-    /** paint for highlightning the values of a linechart */
-    public static final int PAINT_HIGHLIGHT = 15;
-
-    /** paint object used for the limit lines */
-    public static final int PAINT_RADAR_WEB = 16;
-
-    /** paint used for all rendering processes */
-    public static final int PAINT_RENDER = 17;
-
-    /** paint used for the legend */
+    /**
+     * paint used for the legend
+     */
     public static final int PAINT_LEGEND_LABEL = 18;
-
-    /** paint object used for the limit lines */
-    public static final int PAINT_LIMIT_LINE = 19;
 
     /**
      * set a new paint object for the specified parameter in the chart e.g.
      * Chart.PAINT_VALUES
-     * 
-     * @param p the new paint object
+     *
+     * @param p     the new paint object
      * @param which Chart.PAINT_VALUES, Chart.PAINT_GRID, Chart.PAINT_VALUES,
-     *            ...
+     *              ...
      */
     public void setPaint(Paint p, int which) {
 
@@ -1877,33 +1314,12 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
             case PAINT_DESCRIPTION:
                 mDescPaint = p;
                 break;
-            case PAINT_VALUES:
-                mValuePaint = p;
-                break;
-            case PAINT_RENDER:
-                mRenderPaint = p;
-                break;
-            case PAINT_LEGEND_LABEL:
-                mLegendLabelPaint = p;
-                break;
-            case PAINT_XLABEL:
-                mXLabelPaint = p;
-                break;
-            case PAINT_YLABEL:
-                mYLabelPaint = p;
-                break;
-            case PAINT_HIGHLIGHT:
-                mHighlightPaint = p;
-                break;
-            case PAINT_LIMIT_LINE:
-                mLimitLinePaint = p;
-                break;
         }
     }
 
     /**
      * Returns the paint object associated with the provided constant.
-     * 
+     *
      * @param which e.g. Chart.PAINT_LEGEND_LABEL
      * @return
      */
@@ -1913,20 +1329,6 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
                 return mInfoPaint;
             case PAINT_DESCRIPTION:
                 return mDescPaint;
-            case PAINT_VALUES:
-                return mValuePaint;
-            case PAINT_RENDER:
-                return mRenderPaint;
-            case PAINT_LEGEND_LABEL:
-                return mLegendLabelPaint;
-            case PAINT_XLABEL:
-                return mXLabelPaint;
-            case PAINT_YLABEL:
-                return mYLabelPaint;
-            case PAINT_HIGHLIGHT:
-                return mHighlightPaint;
-            case PAINT_LIMIT_LINE:
-                return mLimitLinePaint;
         }
 
         return null;
@@ -1935,7 +1337,7 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     /**
      * returns true if drawing the marker-view is enabled when tapping on values
      * (use the setMarkerView(View v) method to specify a marker view)
-     * 
+     *
      * @return
      */
     public boolean isDrawMarkerViewEnabled() {
@@ -1946,7 +1348,7 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
      * Set this to true to draw a user specified marker-view when tapping on
      * chart values (use the setMarkerView(MarkerView mv) method to specify a
      * marker view). Default: true
-     * 
+     *
      * @param enabled
      */
     public void setDrawMarkerViews(boolean enabled) {
@@ -1954,196 +1356,33 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     }
 
     /**
-     * Sets the formatter to be used for drawing the values inside the chart. If
-     * no formatter is set, the chart will automatically determine a reasonable
-     * formatting (concerning decimals) for all the values that are drawn inside
-     * the chart. Set this to NULL to re-enable auto formatting.
-     * 
-     * @param f
-     */
-    public void setValueFormatter(ValueFormatter f) {
-        mValueFormatter = f;
-
-        if (f == null)
-            mUseDefaultFormatter = true;
-        else
-            mUseDefaultFormatter = false;
-    }
-
-    /**
-     * Returns the formatter used for drawing the values inside the chart.
-     * 
-     * @return
-     */
-    public ValueFormatter getValueFormatter() {
-        return mValueFormatter;
-    }
-
-    /**
-     * sets the draw color for the value paint object
-     * 
-     * @param color
-     */
-    public void setValueTextColor(int color) {
-        mValuePaint.setColor(color);
-    }
-
-    /**
-     * Sets the font size of the values that are drawn inside the chart.
-     * 
-     * @param size
-     */
-    public void setValueTextSize(float size) {
-        mValuePaint.setTextSize(Utils.convertDpToPixel(size));
-    }
-
-    /**
-     * returns true if y-value drawing is enabled, false if not
-     * 
-     * @return
-     */
-    public boolean isDrawYValuesEnabled() {
-        return mDrawYValues;
-    }
-
-    /**
      * returns the x-value at the given index
-     * 
+     *
      * @param index
      * @return
      */
     public String getXValue(int index) {
-        if (mCurrentData == null || mCurrentData.getXValCount() <= index)
+        if (mData == null || mData.getXValCount() <= index)
             return null;
         else
-            return mCurrentData.getXVals().get(index);
-    }
-
-    /**
-     * returns the y-value for the given index from the DataSet with the given
-     * label
-     * 
-     * @param index
-     * @param dataSetLabel
-     * @return
-     */
-    public float getYValue(int index, String dataSetLabel) {
-        DataSet<? extends Entry> set = mCurrentData.getDataSetByLabel(dataSetLabel, true);
-        return set.getYVals().get(index).getVal();
-    }
-
-    /**
-     * returns the y-value for the given x-index and DataSet index
-     * 
-     * @param index
-     * @param dataSet
-     * @return
-     */
-    public float getYValue(int xIndex, int dataSetIndex) {
-        DataSet<? extends Entry> set = mCurrentData.getDataSetByIndex(dataSetIndex);
-        return set.getYValForXIndex(xIndex);
-    }
-
-    /**
-     * returns the DataSet with the given index in the DataSet array held by the
-     * ChartData object.
-     * 
-     * @param index
-     * @return
-     */
-    public DataSet<? extends Entry> getDataSetByIndex(int index) {
-        return mCurrentData.getDataSetByIndex(index);
-    }
-
-    /**
-     * returns the DataSet with the given label that is stored in the ChartData
-     * object.
-     * 
-     * @param type
-     * @return
-     */
-    public DataSet<? extends Entry> getDataSetByLabel(String dataSetLabel) {
-        return mCurrentData.getDataSetByLabel(dataSetLabel, true);
-    }
-
-    /**
-     * returns the Entry object from the first DataSet stored in the ChartData
-     * object. If multiple DataSets are used, use getEntry(index, type) or
-     * getEntryByDataSetIndex(xIndex, dataSetIndex);
-     * 
-     * @param index
-     * @return
-     */
-    public Entry getEntry(int index) {
-        return mCurrentData.getDataSetByIndex(0).getYVals().get(index);
-    }
-
-    /**
-     * returns the Entry object at the given index from the DataSet with the
-     * given label.
-     * 
-     * @param index
-     * @param dataSetLabel
-     * @return
-     */
-    public Entry getEntry(int index, String dataSetLabel) {
-        return mCurrentData.getDataSetByLabel(dataSetLabel, true).getYVals().get(index);
-    }
-
-    /**
-     * Returns the corresponding Entry object at the given xIndex from the given
-     * DataSet. INFORMATION: This method does calculations at runtime. Do not
-     * over-use in performance critical situations.
-     * 
-     * @param xIndex
-     * @param dataSetIndex
-     * @return
-     */
-    public Entry getEntryByDataSetIndex(int xIndex, int dataSetIndex) {
-        return mCurrentData.getDataSetByIndex(dataSetIndex).getEntryForXIndex(xIndex);
-    }
-
-    /**
-     * Returns an array of SelInfo objects for the given x-index. The SelInfo
-     * objects give information about the value at the selected index and the
-     * DataSet it belongs to. INFORMATION: This method does calculations at
-     * runtime. Do not over-use in performance critical situations.
-     * 
-     * @param xIndex
-     * @return
-     */
-    public ArrayList<SelInfo> getYValsAtIndex(int xIndex) {
-
-        ArrayList<SelInfo> vals = new ArrayList<SelInfo>();
-
-        for (int i = 0; i < mCurrentData.getDataSetCount(); i++) {
-
-            // extract all y-values from all DataSets at the given x-index
-            float yVal = mCurrentData.getDataSetByIndex(i).getYValForXIndex(xIndex);
-
-            if (!Float.isNaN(yVal)) {
-                vals.add(new SelInfo(yVal, i));
-            }
-        }
-
-        return vals;
+            return mData.getXVals().get(index);
     }
 
     /**
      * Get all Entry objects at the given index across all DataSets.
      * INFORMATION: This method does calculations at runtime. Do not over-use in
      * performance critical situations.
-     * 
+     *
      * @param xIndex
      * @return
      */
-    public ArrayList<Entry> getEntriesAtIndex(int xIndex) {
+    public List<Entry> getEntriesAtIndex(int xIndex) {
 
-        ArrayList<Entry> vals = new ArrayList<Entry>();
+        List<Entry> vals = new ArrayList<Entry>();
 
-        for (int i = 0; i < mCurrentData.getDataSetCount(); i++) {
+        for (int i = 0; i < mData.getDataSetCount(); i++) {
 
-            DataSet<? extends Entry> set = mCurrentData.getDataSetByIndex(i);
+            IDataSet set = mData.getDataSetByIndex(i);
 
             Entry e = set.getEntryForXIndex(xIndex);
 
@@ -2156,59 +1395,67 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     }
 
     /**
-     * Returns the ChartData object the chart CURRENTLY represents (not
-     * dependant on zoom level). It contains all values and information the
-     * chart displays. If filtering algorithms have been applied, this returns
-     * the filtered state of data.
-     * 
+     * Returns the ChartData object that has been set for the chart.
+     *
      * @return
      */
-    public T getDataCurrent() {
-        return mCurrentData;
+    public T getData() {
+        return mData;
     }
 
     /**
-     * Returns the ChartData object that ORIGINALLY has been set for the chart.
-     * It contains all data in an unaltered state, before any filtering
-     * algorithms have been applied.
-     * 
+     * Returns the ViewPortHandler of the chart that is responsible for the
+     * content area of the chart and its offsets and dimensions.
+     *
      * @return
      */
-    public T getDataOriginal() {
-        return mOriginalData;
+    public ViewPortHandler getViewPortHandler() {
+        return mViewPortHandler;
     }
 
     /**
-     * returns the percentage the given value has of the total y-value sum
-     * 
-     * @param val
+     * Returns the Renderer object the chart uses for drawing data.
+     *
      * @return
      */
-    public float getPercentOfTotal(float val) {
-        return val / mCurrentData.getYValueSum() * 100f;
+    public DataRenderer getRenderer() {
+        return mRenderer;
     }
 
     /**
-     * sets a typeface for the value-paint
-     * 
-     * @param t
+     * Sets a new DataRenderer object for the chart.
+     *
+     * @param renderer
      */
-    public void setValueTypeface(Typeface t) {
-        mValuePaint.setTypeface(t);
+    public void setRenderer(DataRenderer renderer) {
+
+        if (renderer != null)
+            mRenderer = renderer;
+    }
+
+    public ChartHighlighter getHighlighter() {
+        return mHighlighter;
     }
 
     /**
-     * sets the typeface for the description paint
-     * 
-     * @param t
+     * Sets a custom highligher object for the chart that handles / processes
+     * all highlight touch events performed on the chart-view.
+     *
+     * @param highlighter
      */
-    public void setDescriptionTypeface(Typeface t) {
-        mDescPaint.setTypeface(t);
+    public void setHighlighter(ChartHighlighter highlighter) {
+
+        mHighlighter = highlighter;
+    }
+
+    @Override
+    public PointF getCenterOfView() {
+        return getCenter();
     }
 
     /**
      * Returns the bitmap that represents the chart.
-     * 
+     *
      * @return
      */
     public Bitmap getChartBitmap() {
@@ -2236,7 +1483,7 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
      * the sdcard leaving the path empty "" will put the saved file directly on
      * the SD card chart is saved as a PNG image, example:
      * saveToPath("myfilename", "foldername1/foldername2");
-     * 
+     *
      * @param title
      * @param pathOnSD e.g. "folder1/folder2/folder3"
      * @return returns true on success, false on error
@@ -2267,16 +1514,18 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
     }
 
     /**
-     * Saves the current state of the chart to the gallery as a JPEG image. The
-     * filename and compression can be set. 0 == maximum compression, 100 = low
+     * Saves the current state of the chart to the gallery as an image type. The
+     * compression must be set for JPEG only. 0 == maximum compression, 100 = low
      * compression (high quality). NOTE: Needs permission WRITE_EXTERNAL_STORAGE
-     * 
-     * @param fileName e.g. "my_image"
-     * @param quality e.g. 50, min = 0, max = 100
-     * @return returns true if saving was successfull, false if not
+     *
+     * @param fileName        e.g. "my_image"
+     * @param subFolderPath   e.g. "ChartPics"
+     * @param fileDescription e.g. "Chart details"
+     * @param format          e.g. Bitmap.CompressFormat.PNG
+     * @param quality         e.g. 50, min = 0, max = 100
+     * @return returns true if saving was successful, false if not
      */
-    public boolean saveToGallery(String fileName, int quality) {
-
+    public boolean saveToGallery(String fileName, String subFolderPath, String fileDescription, Bitmap.CompressFormat format, int quality) {
         // restrain quality
         if (quality < 0 || quality > 100)
             quality = 50;
@@ -2284,11 +1533,31 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
         long currentTime = System.currentTimeMillis();
 
         File extBaseDir = Environment.getExternalStorageDirectory();
-        File file = new File(extBaseDir.getAbsolutePath() + "/DCIM");
+        File file = new File(extBaseDir.getAbsolutePath() + "/DCIM/" + subFolderPath);
         if (!file.exists()) {
             if (!file.mkdirs()) {
                 return false;
             }
+        }
+
+        String mimeType = "";
+        switch (format) {
+            case PNG:
+                mimeType = "image/png";
+                if (!fileName.endsWith(".png"))
+                    fileName += ".png";
+                break;
+            case WEBP:
+                mimeType = "image/webp";
+                if (!fileName.endsWith(".webp"))
+                    fileName += ".webp";
+                break;
+            case JPEG:
+            default:
+                mimeType = "image/jpeg";
+                if (!(fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")))
+                    fileName += ".jpg";
+                break;
         }
 
         String filePath = file.getAbsolutePath() + "/" + fileName;
@@ -2297,10 +1566,7 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
             out = new FileOutputStream(filePath);
 
             Bitmap b = getChartBitmap();
-
-            b.compress(Bitmap.CompressFormat.JPEG, quality, out); // control
-            // the jpeg
-            // quality
+            b.compress(format, quality, out);
 
             out.flush();
             out.close();
@@ -2319,77 +1585,174 @@ public abstract class Chart<T extends ChartData<? extends DataSet<? extends Entr
         values.put(Images.Media.TITLE, fileName);
         values.put(Images.Media.DISPLAY_NAME, fileName);
         values.put(Images.Media.DATE_ADDED, currentTime);
-        values.put(Images.Media.MIME_TYPE, "image/jpeg");
-        values.put(Images.Media.DESCRIPTION, "MPAndroidChart-Library Save");
+        values.put(Images.Media.MIME_TYPE, mimeType);
+        values.put(Images.Media.DESCRIPTION, fileDescription);
         values.put(Images.Media.ORIENTATION, 0);
         values.put(Images.Media.DATA, filePath);
         values.put(Images.Media.SIZE, size);
 
-        return getContext().getContentResolver().insert(Images.Media.EXTERNAL_CONTENT_URI, values) == null
-                ? false : true;
+        return getContext().getContentResolver().insert(Images.Media.EXTERNAL_CONTENT_URI, values) != null;
+    }
+
+    /**
+     * Saves the current state of the chart to the gallery as a JPEG image. The
+     * filename and compression can be set. 0 == maximum compression, 100 = low
+     * compression (high quality). NOTE: Needs permission WRITE_EXTERNAL_STORAGE
+     *
+     * @param fileName e.g. "my_image"
+     * @param quality  e.g. 50, min = 0, max = 100
+     * @return returns true if saving was successful, false if not
+     */
+    public boolean saveToGallery(String fileName, int quality) {
+        return saveToGallery(fileName, "", "MPAndroidChart-Library Save", Bitmap.CompressFormat.JPEG, quality);
+    }
+
+    /**
+     * tasks to be done after the view is setup
+     */
+    protected ArrayList<Runnable> mJobs = new ArrayList<Runnable>();
+
+    public void removeViewportJob(Runnable job) {
+        mJobs.remove(job);
+    }
+
+    public void clearAllViewportJobs() {
+        mJobs.clear();
+    }
+
+    /**
+     * Either posts a job immediately if the chart has already setup it's
+     * dimensions or adds the job to the execution queue.
+     *
+     * @param job
+     */
+    public void addViewportJob(Runnable job) {
+
+        if (mViewPortHandler.hasChartDimens()) {
+            post(job);
+        } else {
+            mJobs.add(job);
+        }
+    }
+
+    /**
+     * Returns all jobs that are scheduled to be executed after
+     * onSizeChanged(...).
+     *
+     * @return
+     */
+    public ArrayList<Runnable> getJobs() {
+        return mJobs;
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+
+        for (int i = 0; i < getChildCount(); i++) {
+            getChildAt(i).layout(left, top, right, bottom);
+        }
     }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-    }
-
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-
-        prepareContentRect();
-
-        //
-        // prepareContentRect();
-        // Log.i(LOG_TAG,
-        // "onLayout(), width: " + mContentRect.width() + ", height: " +
-        // mContentRect.height());
-        //
-        // calculateOffsets();
+        int size = (int) Utils.convertDpToPixel(50f);
+        setMeasuredDimension(
+                Math.max(getSuggestedMinimumWidth(),
+                        resolveSize(size,
+                                widthMeasureSpec)),
+                Math.max(getSuggestedMinimumHeight(),
+                        resolveSize(size,
+                                heightMeasureSpec)));
     }
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        if (mLogEnabled)
+            Log.i(LOG_TAG, "OnSizeChanged()");
 
-        // create a new bitmap with the new dimensions
-        mDrawBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_4444);
-        mDrawCanvas = new Canvas(mDrawBitmap);
+        if (w > 0 && h > 0 && w < 10000 && h < 10000) {
 
-        // prepare content rect and matrices
-        prepareContentRect();
-        prepare();
+            mViewPortHandler.setChartDimens(w, h);
+
+            if (mLogEnabled)
+                Log.i(LOG_TAG, "Setting chart dimens, width: " + w + ", height: " + h);
+
+            for (Runnable r : mJobs) {
+                post(r);
+            }
+
+            mJobs.clear();
+        }
+
+        notifyDataSetChanged();
 
         super.onSizeChanged(w, h, oldw, oldh);
     }
 
     /**
-     * Default formatter used for formatting values. Uses a DecimalFormat with
-     * pre-calculated number of digits (depending on max and min value).
-     * 
-     * @author Philipp Jahoda
+     * Setting this to true will set the layer-type HARDWARE for the view, false
+     * will set layer-type SOFTWARE.
+     *
+     * @param enabled
      */
-    private class DefaultValueFormatter implements ValueFormatter {
+    public void setHardwareAccelerationEnabled(boolean enabled) {
 
-        /** decimalformat for formatting */
-        private DecimalFormat mFormat;
+        if (android.os.Build.VERSION.SDK_INT >= 11) {
 
-        public DefaultValueFormatter(DecimalFormat f) {
-            mFormat = f;
-        }
-
-        @Override
-        public String getFormattedValue(float value) {
-            // avoid memory allocations here (for performance)
-            return mFormat.format(value);
+            if (enabled)
+                setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            else
+                setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        } else {
+            Log.e(LOG_TAG,
+                    "Cannot enable/disable hardware acceleration for devices below API level 11.");
         }
     }
 
-    // @Override
-    // protected void onAttachedToWindow() {
-    // super.onAttachedToWindow();
-    // if (isInEditMode()) {
-    // initWithDummyData();
-    // }
-    // }
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+
+        //Log.i(LOG_TAG, "Detaching...");
+
+        if (mUnbind)
+            unbindDrawables(this);
+    }
+
+    /**
+     * unbind flag
+     */
+    private boolean mUnbind = false;
+
+    /**
+     * Unbind all drawables to avoid memory leaks.
+     * Link: http://stackoverflow.com/a/6779164/1590502
+     *
+     * @param view
+     */
+    private void unbindDrawables(View view) {
+
+        if (view.getBackground() != null) {
+            view.getBackground().setCallback(null);
+        }
+        if (view instanceof ViewGroup) {
+            for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) {
+                unbindDrawables(((ViewGroup) view).getChildAt(i));
+            }
+            ((ViewGroup) view).removeAllViews();
+        }
+    }
+
+    /**
+     * Set this to true to enable "unbinding" of drawables. When a View is detached
+     * from a window. This helps avoid memory leaks.
+     * Default: false
+     * Link: http://stackoverflow.com/a/6779164/1590502
+     *
+     * @param enabled
+     */
+    public void setUnbindEnabled(boolean enabled) {
+        this.mUnbind = enabled;
+    }
 }

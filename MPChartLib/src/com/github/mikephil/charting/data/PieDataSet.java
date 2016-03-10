@@ -1,28 +1,29 @@
 
 package com.github.mikephil.charting.data;
 
+import com.github.mikephil.charting.interfaces.datasets.IPieDataSet;
 import com.github.mikephil.charting.utils.Utils;
 
 import java.util.ArrayList;
+import java.util.List;
 
-public class PieDataSet extends DataSet<Entry> {
+public class PieDataSet extends DataSet<Entry> implements IPieDataSet {
 
-    /** the space in degrees between the chart-slices, default 0f */
+    /** the space in pixels between the chart-slices, default 0f */
     private float mSliceSpace = 0f;
 
     /** indicates the selection distance of a pie slice */
     private float mShift = 18f;
 
-    public PieDataSet(ArrayList<Entry> yVals, String label) {
+    public PieDataSet(List<Entry> yVals, String label) {
         super(yVals, label);
-
 //        mShift = Utils.convertDpToPixel(12f);
     }
 
     @Override
     public DataSet<Entry> copy() {
 
-        ArrayList<Entry> yVals = new ArrayList<Entry>();
+        List<Entry> yVals = new ArrayList<Entry>();
 
         for (int i = 0; i < mYVals.size(); i++) {
             yVals.add(mYVals.get(i).copy());
@@ -36,27 +37,22 @@ public class PieDataSet extends DataSet<Entry> {
     }
 
     /**
-     * sets the space that is left out between the piechart-slices, default: 0°
-     * --> no space, maximum 45, minimum 0 (no space)
-     * 
-     * @param degrees
+     * Sets the space that is left out between the piechart-slices in dp.
+     * Default: 0 --> no space, maximum 20f
+     *
+     * @param spaceDp
      */
-    public void setSliceSpace(float degrees) {
+    public void setSliceSpace(float spaceDp) {
 
-        if (degrees > 45)
-            degrees = 45f;
-        if (degrees < 0)
-            degrees = 0f;
+        if (spaceDp > 20)
+            spaceDp = 20f;
+        if (spaceDp < 0)
+            spaceDp = 0f;
 
-        mSliceSpace = degrees;
+        mSliceSpace = Utils.convertDpToPixel(spaceDp);
     }
 
-    /**
-     * returns the space that is set to be between the piechart-slices of this
-     * DataSet, in degrees
-     * 
-     * @return
-     */
+    @Override
     public float getSliceSpace() {
         return mSliceSpace;
     }
@@ -71,12 +67,7 @@ public class PieDataSet extends DataSet<Entry> {
         mShift = Utils.convertDpToPixel(shift);
     }
 
-    /**
-     * returns the distance a highlighted piechart slice is "shifted" away from
-     * the chart-center
-     * 
-     * @return
-     */
+    @Override
     public float getSelectionShift() {
         return mShift;
     }

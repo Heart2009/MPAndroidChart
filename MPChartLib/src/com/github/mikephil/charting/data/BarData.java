@@ -1,44 +1,56 @@
 
 package com.github.mikephil.charting.data;
 
+import com.github.mikephil.charting.interfaces.datasets.IBarDataSet;
+
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Data object that represents all data for the BarChart.
  * 
  * @author Philipp Jahoda
  */
-public class BarData extends BarLineScatterCandleData<BarDataSet> {
+public class BarData extends BarLineScatterCandleBubbleData<IBarDataSet> {
 
     /** the space that is left between groups of bars */
     private float mGroupSpace = 0.8f;
-    
-    public BarData(ArrayList<String> xVals) {
+
+    // /**
+    // * The maximum space (in pixels on the screen) a single bar can consume.
+    // */
+    // private float mMaximumBarWidth = 100f;
+
+    public BarData() {
+        super();
+    }
+
+    public BarData(List<String> xVals) {
         super(xVals);
     }
-    
+
     public BarData(String[] xVals) {
         super(xVals);
     }
 
-    public BarData(ArrayList<String> xVals, ArrayList<BarDataSet> dataSets) {
+    public BarData(List<String> xVals, List<IBarDataSet> dataSets) {
         super(xVals, dataSets);
     }
 
-    public BarData(String[] xVals, ArrayList<BarDataSet> dataSets) {
+    public BarData(String[] xVals, List<IBarDataSet> dataSets) {
         super(xVals, dataSets);
     }
 
-    public BarData(ArrayList<String> xVals, BarDataSet dataSet) {
-        super(xVals, toArrayList(dataSet));
+    public BarData(List<String> xVals, IBarDataSet dataSet) {
+        super(xVals, toList(dataSet));
     }
 
-    public BarData(String[] xVals, BarDataSet dataSet) {
-        super(xVals, toArrayList(dataSet));
+    public BarData(String[] xVals, IBarDataSet dataSet) {
+        super(xVals, toList(dataSet));
     }
-    
-    private static ArrayList<BarDataSet> toArrayList(BarDataSet dataSet) {
-        ArrayList<BarDataSet> sets = new ArrayList<BarDataSet>();
+
+    private static List<IBarDataSet> toList(IBarDataSet dataSet) {
+        List<IBarDataSet> sets = new ArrayList<IBarDataSet>();
         sets.add(dataSet);
         return sets;
     }
@@ -68,4 +80,35 @@ public class BarData extends BarLineScatterCandleData<BarDataSet> {
     public void setGroupSpace(float percent) {
         mGroupSpace = percent / 100f;
     }
+
+    /**
+     * Returns true if this BarData object contains grouped DataSets (more than
+     * 1 DataSet).
+     * 
+     * @return
+     */
+    public boolean isGrouped() {
+        return mDataSets.size() > 1 ? true : false;
+    }
+    
+    //
+    // /**
+    // * Sets the maximum width (in density pixels) a single bar in the barchart
+    // * should consume.
+    // *
+    // * @param max
+    // */
+    // public void setBarWidthMaximum(float max) {
+    // mMaximumBarWidth = Utils.convertDpToPixel(max);
+    // }
+    //
+    // /**
+    // * Returns the maximum width (in density pixels) a single bar in the
+    // * barchart should consume.
+    // *
+    // * @return
+    // */
+    // public float getBarWidthMaximum() {
+    // return mMaximumBarWidth;
+    // }
 }

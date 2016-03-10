@@ -11,14 +11,16 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.github.mikephil.charting.charts.BarChart;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.XAxis.XAxisPosition;
 import com.github.mikephil.charting.data.BarData;
 import com.github.mikephil.charting.data.BarDataSet;
 import com.github.mikephil.charting.data.BarEntry;
 import com.github.mikephil.charting.data.filter.Approximator;
 import com.github.mikephil.charting.data.filter.Approximator.ApproximatorType;
+import com.github.mikephil.charting.interfaces.datasets.IBarDataSet;
+import com.github.mikephil.charting.interfaces.datasets.IDataSet;
 import com.github.mikephil.charting.utils.ColorTemplate;
-import com.github.mikephil.charting.utils.XLabels;
-import com.github.mikephil.charting.utils.XLabels.XLabelPosition;
 import com.xxmassdeveloper.mpchartexample.notimportant.DemoBase;
 
 import java.util.ArrayList;
@@ -46,49 +48,40 @@ public class AnotherBarActivity extends DemoBase implements OnSeekBarChangeListe
         mSeekBarY.setOnSeekBarChangeListener(this);
 
         mChart = (BarChart) findViewById(R.id.chart1);
-        
-        mChart.setDrawYValues(false);
 
-        mChart.setUnit(" €");
         mChart.setDescription("");
-        
-        mChart.setDrawYValues(true);
 
         // if more than 60 entries are displayed in the chart, no values will be
         // drawn
         mChart.setMaxVisibleValueCount(60);
 
-        // disable 3D
-        mChart.set3DEnabled(false);
         // scaling can now only be done on x- and y-axis separately
         mChart.setPinchZoom(false);
 
         mChart.setDrawBarShadow(false);
-        
-        mChart.setDrawVerticalGrid(false);
-        mChart.setDrawHorizontalGrid(false);
         mChart.setDrawGridBackground(false);
 
-        XLabels xLabels = mChart.getXLabels();
-        xLabels.setPosition(XLabelPosition.BOTTOM);
-        xLabels.setCenterXLabelText(true);
-        xLabels.setSpaceBetweenLabels(0);
-
-         mChart.setDrawYLabels(false);
-         mChart.setDrawLegend(false);
+        XAxis xAxis = mChart.getXAxis();
+        xAxis.setPosition(XAxisPosition.BOTTOM);
+        xAxis.setSpaceBetweenLabels(0);
+        xAxis.setDrawGridLines(false);
+        
+        mChart.getAxisLeft().setDrawGridLines(false);
 
         // setting data
         mSeekBarX.setProgress(10);
         mSeekBarY.setProgress(100);
-        
+
         // add a nice and smooth animation
         mChart.animateY(2500);
+        
+        mChart.getLegend().setEnabled(false);
 
-//        Legend l = mChart.getLegend();
-//        l.setPosition(LegendPosition.BELOW_CHART_CENTER);
-//        l.setFormSize(8f);
-//        l.setFormToTextSpace(4f);
-//        l.setXEntrySpace(6f);
+        // Legend l = mChart.getLegend();
+        // l.setPosition(LegendPosition.BELOW_CHART_CENTER);
+        // l.setFormSize(8f);
+        // l.setFormToTextSpace(4f);
+        // l.setXEntrySpace(6f);
 
         // mChart.setDrawLegend(false);
     }
@@ -104,27 +97,19 @@ public class AnotherBarActivity extends DemoBase implements OnSeekBarChangeListe
 
         switch (item.getItemId()) {
             case R.id.actionToggleValues: {
-                if (mChart.isDrawYValuesEnabled())
-                    mChart.setDrawYValues(false);
-                else
-                    mChart.setDrawYValues(true);
-                mChart.invalidate();
-                break;
-            }
-            case R.id.actionToggle3D: {
-                if (mChart.is3DEnabled())
-                    mChart.set3DEnabled(false);
-                else
-                    mChart.set3DEnabled(true);
+
+                for (IDataSet set : mChart.getData().getDataSets())
+                    set.setDrawValues(!set.isDrawValuesEnabled());
+
                 mChart.invalidate();
                 break;
             }
             case R.id.actionToggleHighlight: {
-                if (mChart.isHighlightEnabled())
-                    mChart.setHighlightEnabled(false);
-                else
-                    mChart.setHighlightEnabled(true);
-                mChart.invalidate();
+
+                if(mChart.getData() != null) {
+                    mChart.getData().setHighlightEnabled(!mChart.getData().isHighlightEnabled());
+                    mChart.invalidate();
+                }
                 break;
             }
             case R.id.actionTogglePinch: {
@@ -136,31 +121,16 @@ public class AnotherBarActivity extends DemoBase implements OnSeekBarChangeListe
                 mChart.invalidate();
                 break;
             }
+            case R.id.actionToggleAutoScaleMinMax: {
+                mChart.setAutoScaleMinMaxEnabled(!mChart.isAutoScaleMinMaxEnabled());
+                mChart.notifyDataSetChanged();
+                break;
+            }
             case R.id.actionToggleHighlightArrow: {
                 if (mChart.isDrawHighlightArrowEnabled())
                     mChart.setDrawHighlightArrow(false);
                 else
                     mChart.setDrawHighlightArrow(true);
-                mChart.invalidate();
-                break;
-            }
-            case R.id.actionToggleStartzero: {
-                if (mChart.isStartAtZeroEnabled())
-                    mChart.setStartAtZero(false);
-                else
-                    mChart.setStartAtZero(true);
-
-                mChart.invalidate();
-                break;
-            }
-            case R.id.actionToggleAdjustXLegend: {
-                XLabels xLabels = mChart.getXLabels();
-
-                if (xLabels.isAdjustXLabelsEnabled())
-                    xLabels.setAdjustXLabels(false);
-                else
-                    xLabels.setAdjustXLabels(true);
-
                 mChart.invalidate();
                 break;
             }
@@ -175,18 +145,6 @@ public class AnotherBarActivity extends DemoBase implements OnSeekBarChangeListe
             case R.id.animateXY: {
 
                 mChart.animateXY(3000, 3000);
-                break;
-            }
-            case R.id.actionToggleFilter: {
-
-                Approximator a = new Approximator(ApproximatorType.DOUGLAS_PEUCKER, 25);
-
-                if (!mChart.isFilteringEnabled()) {
-                    mChart.enableFiltering(a);
-                } else {
-                    mChart.disableFiltering();
-                }
-                mChart.invalidate();
                 break;
             }
             case R.id.actionSave: {
@@ -210,21 +168,22 @@ public class AnotherBarActivity extends DemoBase implements OnSeekBarChangeListe
 
         ArrayList<BarEntry> yVals1 = new ArrayList<BarEntry>();
 
-        for (int i = 0; i < mSeekBarX.getProgress()+1; i++) {
+        for (int i = 0; i < mSeekBarX.getProgress() + 1; i++) {
             float mult = (mSeekBarY.getProgress() + 1);
             float val1 = (float) (Math.random() * mult) + mult / 3;
             yVals1.add(new BarEntry((int) val1, i));
         }
-        
+
         ArrayList<String> xVals = new ArrayList<String>();
-        for (int i = 0; i < mSeekBarX.getProgress()+1; i++) {
-            xVals.add((int) yVals1.get(i).getVal() + " " + mChart.getUnit());
+        for (int i = 0; i < mSeekBarX.getProgress() + 1; i++) {
+            xVals.add((int) yVals1.get(i).getVal() + "");
         }
 
         BarDataSet set1 = new BarDataSet(yVals1, "Data Set");
         set1.setColors(ColorTemplate.VORDIPLOM_COLORS);
+        set1.setDrawValues(false);
 
-        ArrayList<BarDataSet> dataSets = new ArrayList<BarDataSet>();
+        ArrayList<IBarDataSet> dataSets = new ArrayList<IBarDataSet>();
         dataSets.add(set1);
 
         BarData data = new BarData(xVals, dataSets);

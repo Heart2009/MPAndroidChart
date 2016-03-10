@@ -3,11 +3,16 @@ package com.github.mikephil.charting.data;
 
 import android.graphics.Color;
 
+import com.github.mikephil.charting.interfaces.datasets.IBarDataSet;
+
 import java.util.ArrayList;
+import java.util.List;
 
-public class BarDataSet extends BarLineScatterCandleRadarDataSet<BarEntry> {
+public class BarDataSet extends BarLineScatterCandleBubbleDataSet<BarEntry> implements IBarDataSet {
 
-    /** space indicator between the bars 0.1f == 10 % */
+    /**
+     * space indicator between the bars 0.1f == 10 %
+     */
     private float mBarSpace = 0.15f;
 
     /**
@@ -16,10 +21,14 @@ public class BarDataSet extends BarLineScatterCandleRadarDataSet<BarEntry> {
      */
     private int mStackSize = 1;
 
-    /** the color used for drawing the bar shadows */
+    /**
+     * the color used for drawing the bar shadows
+     */
     private int mBarShadowColor = Color.rgb(215, 215, 215);
 
-    /** the alpha value used to draw the highlight indicator bar */
+    /**
+     * the alpha value used to draw the highlight indicator bar
+     */
     private int mHighLightAlpha = 120;
 
     /**
@@ -30,11 +39,11 @@ public class BarDataSet extends BarLineScatterCandleRadarDataSet<BarEntry> {
     /**
      * array of labels used to describe the different values of the stacked bars
      */
-    private String[] mStackLabels = new String[] {
+    private String[] mStackLabels = new String[]{
             "Stack"
     };
 
-    public BarDataSet(ArrayList<BarEntry> yVals, String label) {
+    public BarDataSet(List<BarEntry> yVals, String label) {
         super(yVals, label);
 
         mHighLightColor = Color.rgb(0, 0, 0);
@@ -45,8 +54,8 @@ public class BarDataSet extends BarLineScatterCandleRadarDataSet<BarEntry> {
 
     @Override
     public DataSet<BarEntry> copy() {
-        
-        ArrayList<BarEntry> yVals = new ArrayList<BarEntry>();
+
+        List<BarEntry> yVals = new ArrayList<BarEntry>();
 
         for (int i = 0; i < mYVals.size(); i++) {
             yVals.add(((BarEntry) mYVals.get(i)).copy());
@@ -68,7 +77,7 @@ public class BarDataSet extends BarLineScatterCandleRadarDataSet<BarEntry> {
      * Calculates the total number of entries this DataSet represents, including
      * stacks. All values belonging to a stack are calculated separately.
      */
-    private void calcEntryCountIncludingStacks(ArrayList<BarEntry> yVals) {
+    private void calcEntryCountIncludingStacks(List<BarEntry> yVals) {
 
         mEntryCountStacks = 0;
 
@@ -87,7 +96,7 @@ public class BarDataSet extends BarLineScatterCandleRadarDataSet<BarEntry> {
      * calculates the maximum stacksize that occurs in the Entries array of this
      * DataSet
      */
-    private void calcStackSize(ArrayList<BarEntry> yVals) {
+    private void calcStackSize(List<BarEntry> yVals) {
 
         for (int i = 0; i < yVals.size(); i++) {
 
@@ -98,20 +107,71 @@ public class BarDataSet extends BarLineScatterCandleRadarDataSet<BarEntry> {
         }
     }
 
-    /**
-     * Returns the maximum number of bars that can be stacked upon another in
-     * this DataSet.
-     * 
-     * @return
-     */
+    @Override
+    public void calcMinMax(int start, int end) {
+
+        if (mYVals == null)
+            return;
+
+        final int yValCount = mYVals.size();
+
+        if (yValCount == 0)
+            return;
+
+        int endValue;
+
+        if (end == 0 || end >= yValCount)
+            endValue = yValCount - 1;
+        else
+            endValue = end;
+
+        mYMin = Float.MAX_VALUE;
+        mYMax = -Float.MAX_VALUE;
+
+        for (int i = start; i <= endValue; i++) {
+
+            BarEntry e = mYVals.get(i);
+
+            if (e != null && !Float.isNaN(e.getVal())) {
+
+                if (e.getVals() == null) {
+
+                    if (e.getVal() < mYMin)
+                        mYMin = e.getVal();
+
+                    if (e.getVal() > mYMax)
+                        mYMax = e.getVal();
+                } else {
+
+                    if (-e.getNegativeSum() < mYMin)
+                        mYMin = -e.getNegativeSum();
+
+                    if (e.getPositiveSum() > mYMax)
+                        mYMax = e.getPositiveSum();
+                }
+            }
+        }
+
+        if (mYMin == Float.MAX_VALUE) {
+            mYMin = 0.f;
+            mYMax = 0.f;
+        }
+    }
+
+    @Override
     public int getStackSize() {
         return mStackSize;
+    }
+
+    @Override
+    public boolean isStacked() {
+        return mStackSize > 1 ? true : false;
     }
 
     /**
      * returns the overall entry count, including counting each stack-value
      * individually
-     * 
+     *
      * @return
      */
     public int getEntryCountStacks() {
@@ -120,25 +180,21 @@ public class BarDataSet extends BarLineScatterCandleRadarDataSet<BarEntry> {
 
     /**
      * returns the space between bars in percent of the whole width of one value
-     * 
+     *
      * @return
      */
     public float getBarSpacePercent() {
         return mBarSpace * 100f;
     }
 
-    /**
-     * returns the space between bars as the actual value (0 - 1.0f)
-     * 
-     * @return
-     */
+    @Override
     public float getBarSpace() {
         return mBarSpace;
     }
 
     /**
-     * sets the space between the bars in percent of the total bar width
-     * 
+     * sets the space between the bars in percent (0-100) of the total bar width
+     *
      * @param percent
      */
     public void setBarSpacePercent(float percent) {
@@ -149,19 +205,14 @@ public class BarDataSet extends BarLineScatterCandleRadarDataSet<BarEntry> {
      * Sets the color used for drawing the bar-shadows. The bar shadows is a
      * surface behind the bar that indicates the maximum value. Don't for get to
      * use getResources().getColor(...) to set this. Or Color.rgb(...).
-     * 
+     *
      * @param color
      */
     public void setBarShadowColor(int color) {
         mBarShadowColor = color;
     }
 
-    /**
-     * Returns the color used for drawing the bar-shadows. The bar shadows is a
-     * surface behind the bar that indicates the maximum value.
-     * 
-     * @return
-     */
+    @Override
     public int getBarShadowColor() {
         return mBarShadowColor;
     }
@@ -169,37 +220,28 @@ public class BarDataSet extends BarLineScatterCandleRadarDataSet<BarEntry> {
     /**
      * Set the alpha value (transparency) that is used for drawing the highlight
      * indicator bar. min = 0 (fully transparent), max = 255 (fully opaque)
-     * 
+     *
      * @param alpha
      */
     public void setHighLightAlpha(int alpha) {
         mHighLightAlpha = alpha;
     }
 
-    /**
-     * Returns the alpha value (transparency) that is used for drawing the
-     * highlight indicator.
-     * 
-     * @return
-     */
+    @Override
     public int getHighLightAlpha() {
         return mHighLightAlpha;
     }
 
     /**
      * Sets labels for different values of bar-stacks, in case there are one.
-     * 
+     *
      * @param labels
      */
     public void setStackLabels(String[] labels) {
         mStackLabels = labels;
     }
 
-    /**
-     * returns the labels used for the different value-stacks
-     * 
-     * @return
-     */
+    @Override
     public String[] getStackLabels() {
         return mStackLabels;
     }

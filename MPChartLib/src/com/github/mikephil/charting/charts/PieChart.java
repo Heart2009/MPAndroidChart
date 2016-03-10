@@ -3,25 +3,25 @@ package com.github.mikephil.charting.charts;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.Paint.Align;
 import android.graphics.PointF;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.util.AttributeSet;
 
-import com.github.mikephil.charting.data.DataSet;
 import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.PieData;
-import com.github.mikephil.charting.data.PieDataSet;
+import com.github.mikephil.charting.highlight.Highlight;
+import com.github.mikephil.charting.interfaces.datasets.IPieDataSet;
+import com.github.mikephil.charting.renderer.PieChartRenderer;
+import com.github.mikephil.charting.utils.ColorTemplate;
 import com.github.mikephil.charting.utils.Utils;
 
-import java.util.ArrayList;
+import java.util.List;
 
 /**
  * View that represents a pie chart. Draws cake like slices.
- * 
+ *
  * @author Philipp Jahoda
  */
 public class PieChart extends PieRadarChartBase<PieData> {
@@ -32,20 +32,45 @@ public class PieChart extends PieRadarChartBase<PieData> {
      */
     private RectF mCircleBox = new RectF();
 
-    /** array that holds the width of each pie-slice in degrees */
+    /**
+     * flag indicating if the x-labels should be drawn or not
+     */
+    private boolean mDrawXLabels = true;
+
+    /**
+     * array that holds the width of each pie-slice in degrees
+     */
     private float[] mDrawAngles;
 
-    /** array that holds the absolute angle in degrees of each slice */
+    /**
+     * array that holds the absolute angle in degrees of each slice
+     */
     private float[] mAbsoluteAngles;
 
-    /** if true, the white hole inside the chart will be drawn */
+    /**
+     * if true, the white hole inside the chart will be drawn
+     */
     private boolean mDrawHole = true;
 
     /**
-     * variable for the text that is drawn in the center of the pie-chart. If
-     * this value is null, the default is "Total Value\n + getYValueSum()"
+     * if true, the hole will see-through to the inner tips of the slices
      */
-    private String mCenterText = "";
+    private boolean mDrawSlicesUnderHole = false;
+
+    /**
+     * if true, the values inside the piechart are drawn as percent values
+     */
+    private boolean mUsePercentValues = false;
+
+    /**
+     * if true, the slices of the piechart are rounded
+     */
+    private boolean mDrawRoundedSlices = false;
+
+    /**
+     * variable for the text that is drawn in the center of the pie-chart
+     */
+    private CharSequence mCenterText = "";
 
     /**
      * indicates the size of the hole in the center of the piechart, default:
@@ -56,33 +81,16 @@ public class PieChart extends PieRadarChartBase<PieData> {
     /**
      * the radius of the transparent circle next to the chart-hole in the center
      */
-    private float mTransparentCircleRadius = 55f;
+    protected float mTransparentCircleRadiusPercent = 55f;
 
-    /** if enabled, centertext is drawn */
+    /**
+     * if enabled, centertext is drawn
+     */
     private boolean mDrawCenterText = true;
 
-    /**
-     * set this to true to draw the x-values next to the values in the pie
-     * slices
-     */
-    private boolean mDrawXVals = true;
+    private float mCenterTextRadiusPercent = 100.f;
 
-    /**
-     * if set to true, all values show up in percent instead of their real value
-     */
-    private boolean mUsePercentValues = false;
-
-    /**
-     * paint for the hole in the center of the pie chart and the transparent
-     * circle
-     */
-    private Paint mHolePaint;
-
-    /**
-     * paint object for the text that can be displayed in the center of the
-     * chart
-     */
-    private Paint mCenterTextPaint;
+    protected float mMaxAngle = 360f;
 
     public PieChart(Context context) {
         super(context);
@@ -100,76 +108,92 @@ public class PieChart extends PieRadarChartBase<PieData> {
     protected void init() {
         super.init();
 
-        // // piechart has no offsets
-        // mOffsetTop = 0;
-        // mOffsetBottom = 0;
-        // mOffsetLeft = 0;
-        // mOffsetRight = 0;
-
-        mHolePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mHolePaint.setColor(Color.WHITE);
-
-        mCenterTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mCenterTextPaint.setColor(Color.BLACK);
-        mCenterTextPaint.setTextSize(Utils.convertDpToPixel(12f));
-        mCenterTextPaint.setTextAlign(Align.CENTER);
-
-        mValuePaint.setTextSize(Utils.convertDpToPixel(13f));
-        mValuePaint.setColor(Color.WHITE);
-        mValuePaint.setTextAlign(Align.CENTER);
-
-        // for the piechart, drawing values is enabled
-        mDrawYValues = true;
+        mRenderer = new PieChartRenderer(this, mAnimator, mViewPortHandler);
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
-        if (mDataNotSet)
+        if (mData == null)
             return;
 
-        drawHighlights();
+        mRenderer.drawData(canvas);
 
-        drawData();
+        if (valuesToHighlight())
+            mRenderer.drawHighlighted(canvas, mIndicesToHighlight);
 
-        drawAdditional();
+        mRenderer.drawExtras(canvas);
 
-        drawValues();
+        mRenderer.drawValues(canvas);
 
-        drawLegend();
+        mLegendRenderer.renderLegend(canvas);
 
-        drawDescription();
+        drawDescription(canvas);
 
-        drawCenterText();
-
-        canvas.drawBitmap(mDrawBitmap, 0, 0, mDrawPaint);
+        drawMarkers(canvas);
     }
 
     @Override
-    protected void prepareContentRect() {
-        super.prepareContentRect();
+    public void calculateOffsets() {
+        super.calculateOffsets();
 
         // prevent nullpointer when no data set
-        if (mDataNotSet)
+        if (mData == null)
             return;
 
         float diameter = getDiameter();
-        float boxSize = diameter / 2f;
+        float radius = diameter / 2f;
 
         PointF c = getCenterOffsets();
 
+        float shift = mData.getDataSet().getSelectionShift();
+
         // create the circle box that will contain the pie-chart (the bounds of
         // the pie-chart)
-        mCircleBox.set(c.x - boxSize, c.y - boxSize,
-                c.x + boxSize, c.y + boxSize);
+        mCircleBox.set(c.x - radius + shift,
+                c.y - radius + shift,
+                c.x + radius - shift,
+                c.y + radius - shift);
     }
 
     @Override
-    protected void calcMinMax(boolean fixedValues) {
-        super.calcMinMax(fixedValues);
+    protected void calcMinMax() {
+        super.calcMinMax();
 
         calcAngles();
+    }
+
+    @Override
+    protected float[] getMarkerPosition(Entry e, Highlight highlight) {
+
+        PointF center = getCenterCircleBox();
+        float r = getRadius();
+
+        float off = r / 10f * 3.6f;
+
+        if (isDrawHoleEnabled()) {
+            off = (r - (r / 100f * getHoleRadius())) / 2f;
+        }
+
+        r -= off; // offset to keep things inside the chart
+
+        float rotationAngle = getRotationAngle();
+
+        int i = e.getXIndex();
+
+        // offset needed to center the drawn text in the slice
+        float offset = mDrawAngles[i] / 2;
+
+        // calculate the text position
+        float x = (float) (r
+                * Math.cos(Math.toRadians((rotationAngle + mAbsoluteAngles[i] - offset)
+                * mAnimator.getPhaseY())) + center.x);
+        float y = (float) (r
+                * Math.sin(Math.toRadians((rotationAngle + mAbsoluteAngles[i] - offset)
+                * mAnimator.getPhaseY())) + center.y);
+
+        return new float[]{x, y};
     }
 
     /**
@@ -177,21 +201,22 @@ public class PieChart extends PieRadarChartBase<PieData> {
      */
     private void calcAngles() {
 
-        mDrawAngles = new float[mCurrentData.getYValCount()];
-        mAbsoluteAngles = new float[mCurrentData.getYValCount()];
+        mDrawAngles = new float[mData.getYValCount()];
+        mAbsoluteAngles = new float[mData.getYValCount()];
 
-        ArrayList<PieDataSet> dataSets = mCurrentData.getDataSets();
+        float yValueSum = mData.getYValueSum();
+
+        List<IPieDataSet> dataSets = mData.getDataSets();
 
         int cnt = 0;
 
-        for (int i = 0; i < mCurrentData.getDataSetCount(); i++) {
+        for (int i = 0; i < mData.getDataSetCount(); i++) {
 
-            PieDataSet set = dataSets.get(i);
-            ArrayList<Entry> entries = set.getYVals();
+            IPieDataSet set = dataSets.get(i);
 
-            for (int j = 0; j < entries.size(); j++) {
+            for (int j = 0; j < set.getEntryCount(); j++) {
 
-                mDrawAngles[cnt] = calcAngle(Math.abs(entries.get(j).getVal()));
+                mDrawAngles[cnt] = calcAngle(Math.abs(set.getEntryForIndex(j).getVal()), yValueSum);
 
                 if (cnt == 0) {
                     mAbsoluteAngles[cnt] = mDrawAngles[cnt];
@@ -205,295 +230,56 @@ public class PieChart extends PieRadarChartBase<PieData> {
 
     }
 
-    @Override
-    protected void drawHighlights() {
-
-        // if there are values to highlight and highlighnting is enabled, do it
-        if (mHighlightEnabled && valuesToHighlight()) {
-
-            float angle = 0f;
-
-            for (int i = 0; i < mIndicesToHightlight.length; i++) {
-
-                // get the index to highlight
-                int xIndex = mIndicesToHightlight[i].getXIndex();
-                if (xIndex >= mDrawAngles.length)
-                    continue;
-
-                if (xIndex == 0)
-                    angle = mRotationAngle;
-                else
-                    angle = mRotationAngle + mAbsoluteAngles[xIndex - 1];
-
-                angle *= mPhaseY;
-
-                float sliceDegrees = mDrawAngles[xIndex];
-
-                float shiftangle = (float) Math.toRadians(angle + sliceDegrees / 2f);
-
-                PieDataSet set = mCurrentData
-                        .getDataSetByIndex(mIndicesToHightlight[i]
-                                .getDataSetIndex());
-
-                if (set == null)
-                    continue;
-
-                float shift = set.getSelectionShift();
-                float xShift = shift * (float) Math.cos(shiftangle);
-                float yShift = shift * (float) Math.sin(shiftangle);
-
-                RectF highlighted = new RectF(mCircleBox.left + xShift, mCircleBox.top + yShift,
-                        mCircleBox.right
-                                + xShift, mCircleBox.bottom + yShift);
-
-                mRenderPaint.setColor(set.getColor(xIndex));
-
-                // redefine the rect that contains the arc so that the
-                // highlighted pie is not cut off
-                mDrawCanvas.drawArc(highlighted, angle + set.getSliceSpace() / 2f, sliceDegrees
-                        - set.getSliceSpace() / 2f, true, mRenderPaint);
-            }
-        }
-    }
-
-    @Override
-    protected void drawData() {
-
-        float angle = mRotationAngle;
-
-        ArrayList<PieDataSet> dataSets = mCurrentData.getDataSets();
-
-        int cnt = 0;
-
-        for (int i = 0; i < mCurrentData.getDataSetCount(); i++) {
-
-            PieDataSet dataSet = dataSets.get(i);
-            ArrayList<Entry> entries = dataSet.getYVals();
-
-            for (int j = 0; j < entries.size(); j++) {
-
-                float newangle = mDrawAngles[cnt];
-                float sliceSpace = dataSet.getSliceSpace();
-
-                Entry e = entries.get(j);
-
-                // draw only if the value is greater than zero
-                if ((Math.abs(e.getVal()) > 0.000001)) {
-
-                    if (!needsHighlight(e.getXIndex(), i)) {
-
-                        mRenderPaint.setColor(dataSet.getColor(j));
-                        mDrawCanvas.drawArc(mCircleBox, angle + sliceSpace / 2f, newangle * mPhaseY
-                                - sliceSpace / 2f, true, mRenderPaint);
-                    }
-
-                    // if(sliceSpace > 0f) {
-                    //
-                    // PointF outer = getPosition(c, radius, angle);
-                    // PointF inner = getPosition(c, radius * mHoleRadiusPercent
-                    // / 100f, angle);
-                    // }
-                }
-
-                angle += newangle * mPhaseX;
-                cnt++;
-            }
-        }
-    }
-
     /**
      * checks if the given index in the given DataSet is set for highlighting or
      * not
-     * 
+     *
      * @param xIndex
      * @param dataSetIndex
      * @return
      */
-    private boolean needsHighlight(int xIndex, int dataSetIndex) {
+    public boolean needsHighlight(int xIndex, int dataSetIndex) {
 
         // no highlight
-        if (!valuesToHighlight())
+        if (!valuesToHighlight() || dataSetIndex < 0)
             return false;
 
-        for (int i = 0; i < mIndicesToHightlight.length; i++)
+        for (int i = 0; i < mIndicesToHighlight.length; i++)
 
             // check if the xvalue for the given dataset needs highlight
-            if (mIndicesToHightlight[i].getXIndex() == xIndex
-                    && mIndicesToHightlight[i].getDataSetIndex() == dataSetIndex)
+            if (mIndicesToHighlight[i].getXIndex() == xIndex
+                    && mIndicesToHighlight[i].getDataSetIndex() == dataSetIndex)
                 return true;
 
         return false;
     }
 
     /**
-     * draws the hole in the center of the chart and the transparent circle /
-     * hole
-     */
-    private void drawHole() {
-
-        if (mDrawHole) {
-
-            float radius = getRadius();
-
-            PointF c = getCenterCircleBox();
-
-            int color = mHolePaint.getColor();
-
-            // draw the hole-circle
-            mDrawCanvas.drawCircle(c.x, c.y,
-                    radius / 100 * mHoleRadiusPercent, mHolePaint);
-
-            if (mTransparentCircleRadius > mHoleRadiusPercent) {
-
-                // make transparent
-                mHolePaint.setColor(color & 0x60FFFFFF);
-
-                // draw the transparent-circle
-                mDrawCanvas.drawCircle(c.x, c.y,
-                        radius / 100 * mTransparentCircleRadius, mHolePaint);
-
-                mHolePaint.setColor(color);
-            }
-        }
-    }
-
-    /**
-     * draws the description text in the center of the pie chart makes most
-     * sense when center-hole is enabled
-     */
-    private void drawCenterText() {
-
-        if (mDrawCenterText && mCenterText != null) {
-
-            PointF c = getCenterCircleBox();
-
-            // get all lines from the text
-            String[] lines = mCenterText.split("\n");
-
-            // calculate the height for each line
-            float lineHeight = Utils.calcTextHeight(mCenterTextPaint, lines[0]);
-            float linespacing = lineHeight * 0.2f;
-
-            float totalheight = lineHeight * lines.length - linespacing * (lines.length - 1);
-
-            int cnt = lines.length;
-
-            float y = c.y;
-
-            for (int i = 0; i < lines.length; i++) {
-
-                String line = lines[lines.length - i - 1];
-
-                mDrawCanvas.drawText(line, c.x, y
-                        + lineHeight * cnt - totalheight / 2f,
-                        mCenterTextPaint);
-                cnt--;
-                y -= linespacing;
-            }
-        }
-    }
-
-    @Override
-    protected void drawValues() {
-
-        // if neither xvals nor yvals are drawn, return
-        if (!mDrawXVals && !mDrawYValues)
-            return;
-
-        PointF center = getCenterCircleBox();
-
-        // get whole the radius
-        float r = getRadius();
-
-        float off = r / 2f;
-
-        if (mDrawHole) {
-            off = (r - (r / 100f * mHoleRadiusPercent)) / 2f;
-        }
-
-        r -= off; // offset to keep things inside the chart
-
-        ArrayList<PieDataSet> dataSets = mCurrentData.getDataSets();
-
-        int cnt = 0;
-
-        for (int i = 0; i < mCurrentData.getDataSetCount(); i++) {
-
-            PieDataSet dataSet = dataSets.get(i);
-            ArrayList<Entry> entries = dataSet.getYVals();
-
-            for (int j = 0; j < entries.size() * mPhaseX; j++) {
-
-                // offset needed to center the drawn text in the slice
-                float offset = mDrawAngles[cnt] / 2;
-
-                // calculate the text position
-                float x = (float) (r
-                        * Math.cos(Math.toRadians((mRotationAngle + mAbsoluteAngles[cnt] - offset)
-                                * mPhaseY)) + center.x);
-                float y = (float) (r
-                        * Math.sin(Math.toRadians((mRotationAngle + mAbsoluteAngles[cnt] - offset)
-                                * mPhaseY)) + center.y);
-
-                String val = "";
-                float value = entries.get(j).getVal();
-
-                if (mUsePercentValues)
-                    val = mValueFormatter.getFormattedValue(Math.abs(getPercentOfTotal(value)))
-                            + " %";
-                else
-                    val = mValueFormatter.getFormattedValue(value);
-
-                if (mDrawUnitInChart)
-                    val = val + mUnit;
-
-                // draw everything, depending on settings
-                if (mDrawXVals && mDrawYValues) {
-
-                    // use ascent and descent to calculate the new line
-                    // position,
-                    // 1.6f is the line spacing
-                    float lineHeight = (mValuePaint.ascent() + mValuePaint.descent()) * 1.6f;
-                    y -= lineHeight / 2;
-
-                    mDrawCanvas.drawText(val, x, y, mValuePaint);
-                    if (j < mCurrentData.getXValCount())
-                        mDrawCanvas.drawText(mCurrentData.getXVals().get(j), x, y + lineHeight,
-                                mValuePaint);
-
-                } else if (mDrawXVals && !mDrawYValues) {
-                    if (j < mCurrentData.getXValCount())
-                        mDrawCanvas.drawText(mCurrentData.getXVals().get(j), x, y, mValuePaint);
-                } else if (!mDrawXVals && mDrawYValues) {
-
-                    mDrawCanvas.drawText(val, x, y, mValuePaint);
-                }
-
-                cnt++;
-            }
-        }
-    }
-
-    @Override
-    protected void drawAdditional() {
-        drawHole();
-    }
-
-    /**
      * calculates the needed angle for a given value
-     * 
+     *
      * @param value
      * @return
      */
     private float calcAngle(float value) {
-        return value / mCurrentData.getYValueSum() * 360f;
+        return calcAngle(value, mData.getYValueSum());
+    }
+
+    /**
+     * calculates the needed angle for a given value
+     *
+     * @param value
+     * @param yValueSum
+     * @return
+     */
+    private float calcAngle(float value, float yValueSum) {
+        return value / yValueSum * mMaxAngle;
     }
 
     @Override
     public int getIndexForAngle(float angle) {
 
         // take the current angle of the chart into consideration
-        float a = (angle - mRotationAngle + 360) % 360f;
+        float a = Utils.getNormalizedAngle(angle - getRotationAngle());
 
         for (int i = 0; i < mAbsoluteAngles.length; i++) {
             if (mAbsoluteAngles[i] > a)
@@ -505,13 +291,13 @@ public class PieChart extends PieRadarChartBase<PieData> {
 
     /**
      * Returns the index of the DataSet this x-index belongs to.
-     * 
+     *
      * @param xIndex
      * @return
      */
     public int getDataSetIndexForIndex(int xIndex) {
 
-        ArrayList<? extends DataSet<? extends Entry>> dataSets = mCurrentData.getDataSets();
+        List<IPieDataSet> dataSets = mData.getDataSets();
 
         for (int i = 0; i < dataSets.size(); i++) {
             if (dataSets.get(i).getEntryForXIndex(xIndex) != null)
@@ -525,7 +311,7 @@ public class PieChart extends PieRadarChartBase<PieData> {
      * returns an integer array of all the different angles the chart slices
      * have the angles in the returned array determine how much space (of 360°)
      * each slice takes
-     * 
+     *
      * @return
      */
     public float[] getDrawAngles() {
@@ -535,7 +321,7 @@ public class PieChart extends PieRadarChartBase<PieData> {
     /**
      * returns the absolute angles of the different chart slices (where the
      * slices end)
-     * 
+     *
      * @return
      */
     public float[] getAbsoluteAngles() {
@@ -543,18 +329,35 @@ public class PieChart extends PieRadarChartBase<PieData> {
     }
 
     /**
-     * Sets the color for the hole that is drawn in the center of the piechart
+     * Sets the color for the hole that is drawn in the center of the PieChart
      * (if enabled).
-     * 
+     *
      * @param color
      */
     public void setHoleColor(int color) {
-        mHolePaint.setColor(color);
+        ((PieChartRenderer) mRenderer).getPaintHole().setColor(color);
+    }
+
+    /**
+     * Enable or disable the visibility of the inner tips of the slices behind the hole
+     */
+    public void setDrawSlicesUnderHole(boolean enable) {
+        mDrawSlicesUnderHole = enable;
+    }
+
+    /**
+     * Returns true if the inner tips of the slices are visible behind the hole,
+     * false if not.
+     *
+     * @return true if slices are visible behind the hole.
+     */
+    public boolean isDrawSlicesUnderHoleEnabled() {
+        return mDrawSlicesUnderHole;
     }
 
     /**
      * set this to true to draw the pie center empty
-     * 
+     *
      * @param enabled
      */
     public void setDrawHoleEnabled(boolean enabled) {
@@ -564,7 +367,7 @@ public class PieChart extends PieRadarChartBase<PieData> {
     /**
      * returns true if the hole in the center of the pie-chart is set to be
      * visible, false if not
-     * 
+     *
      * @return
      */
     public boolean isDrawHoleEnabled() {
@@ -572,28 +375,30 @@ public class PieChart extends PieRadarChartBase<PieData> {
     }
 
     /**
-     * sets the text that is displayed in the center of the pie-chart. By
-     * default, the text is "Total Value + sumofallvalues"
-     * 
+     * Sets the text String that is displayed in the center of the PieChart.
+     *
      * @param text
      */
-    public void setCenterText(String text) {
-        mCenterText = text;
+    public void setCenterText(CharSequence text) {
+        if (text == null)
+            mCenterText = "";
+        else
+            mCenterText = text;
     }
 
     /**
      * returns the text that is drawn in the center of the pie-chart
-     * 
+     *
      * @return
      */
-    public String getCenterText() {
+    public CharSequence getCenterText() {
         return mCenterText;
     }
 
     /**
      * set this to true to draw the text that is displayed in the center of the
      * pie chart
-     * 
+     *
      * @param enabled
      */
     public void setDrawCenterText(boolean enabled) {
@@ -602,52 +407,16 @@ public class PieChart extends PieRadarChartBase<PieData> {
 
     /**
      * returns true if drawing the center text is enabled
-     * 
+     *
      * @return
      */
     public boolean isDrawCenterTextEnabled() {
         return mDrawCenterText;
     }
 
-    /**
-     * set this to true to draw percent values instead of the actual values
-     * 
-     * @param enabled
-     */
-    public void setUsePercentValues(boolean enabled) {
-        mUsePercentValues = enabled;
-    }
-
-    /**
-     * returns true if drawing percent values is enabled
-     * 
-     * @return
-     */
-    public boolean isUsePercentValuesEnabled() {
-        return mUsePercentValues;
-    }
-
-    /**
-     * set this to true to draw the x-value text into the pie slices
-     * 
-     * @param enabled
-     */
-    public void setDrawXValues(boolean enabled) {
-        mDrawXVals = enabled;
-    }
-
-    /**
-     * returns true if drawing x-values is enabled, false if not
-     * 
-     * @return
-     */
-    public boolean isDrawXValuesEnabled() {
-        return mDrawXVals;
-    }
-
     @Override
-    protected float getRequiredBottomOffset() {
-        return mLegendLabelPaint.getTextSize() * 4f;
+    protected float getRequiredLegendOffset() {
+        return mLegendRenderer.getLabelPaint().getTextSize() * 2.f;
     }
 
     @Override
@@ -665,7 +434,7 @@ public class PieChart extends PieRadarChartBase<PieData> {
 
     /**
      * returns the circlebox, the boundingbox of the pie-chart slices
-     * 
+     *
      * @return
      */
     public RectF getCircleBox() {
@@ -674,7 +443,7 @@ public class PieChart extends PieRadarChartBase<PieData> {
 
     /**
      * returns the center of the circlebox
-     * 
+     *
      * @return
      */
     public PointF getCenterCircleBox() {
@@ -683,30 +452,71 @@ public class PieChart extends PieRadarChartBase<PieData> {
 
     /**
      * sets the typeface for the center-text paint
-     * 
+     *
      * @param t
      */
     public void setCenterTextTypeface(Typeface t) {
-        mCenterTextPaint.setTypeface(t);
+        ((PieChartRenderer) mRenderer).getPaintCenterText().setTypeface(t);
     }
 
     /**
-     * Sets the size of the center text of the piechart.
-     * 
-     * @param size
+     * Sets the size of the center text of the PieChart in dp.
+     *
+     * @param sizeDp
      */
-    public void setCenterTextSize(float size) {
-        mCenterTextPaint.setTextSize(Utils.convertDpToPixel(size));
+    public void setCenterTextSize(float sizeDp) {
+        ((PieChartRenderer) mRenderer).getPaintCenterText().setTextSize(
+                Utils.convertDpToPixel(sizeDp));
+    }
+
+    /**
+     * Sets the size of the center text of the PieChart in pixels.
+     *
+     * @param sizePixels
+     */
+    public void setCenterTextSizePixels(float sizePixels) {
+        ((PieChartRenderer) mRenderer).getPaintCenterText().setTextSize(sizePixels);
+    }
+
+    /**
+     * Sets the color of the center text of the PieChart.
+     *
+     * @param color
+     */
+    public void setCenterTextColor(int color) {
+        ((PieChartRenderer) mRenderer).getPaintCenterText().setColor(color);
     }
 
     /**
      * sets the radius of the hole in the center of the piechart in percent of
      * the maximum radius (max = the radius of the whole chart), default 50%
-     * 
-     * @param size
+     *
+     * @param percent
      */
     public void setHoleRadius(final float percent) {
         mHoleRadiusPercent = percent;
+    }
+
+    /**
+     * Returns the size of the hole radius in percent of the total radius.
+     *
+     * @return
+     */
+    public float getHoleRadius() {
+        return mHoleRadiusPercent;
+    }
+
+    /**
+     * Sets the color the transparent-circle should have.
+     *
+     * @param color
+     */
+    public void setTransparentCircleColor(int color) {
+
+        Paint p = ((PieChartRenderer) mRenderer).getPaintTransparentCircle();
+        int alpha = p.getAlpha();
+        p.setColor(color);
+        p.setAlpha(alpha);
     }
 
     /**
@@ -714,40 +524,119 @@ public class PieChart extends PieRadarChartBase<PieData> {
      * in the piechart in percent of the maximum radius (max = the radius of the
      * whole chart), default 55% -> means 5% larger than the center-hole by
      * default
-     * 
+     *
      * @param percent
      */
     public void setTransparentCircleRadius(final float percent) {
-        mTransparentCircleRadius = percent;
+        mTransparentCircleRadiusPercent = percent;
+    }
+
+    public float getTransparentCircleRadius() {
+        return mTransparentCircleRadiusPercent;
+    }
+
+    /**
+     * Sets the amount of transparency the transparent circle should have 0 = fully transparent, 255 = fully opaque.
+     * Default value is 100.
+     *
+     * @param alpha 0-255
+     */
+    public void setTransparentCircleAlpha(int alpha) {
+        ((PieChartRenderer) mRenderer).getPaintTransparentCircle().setAlpha(alpha);
+    }
+
+    /**
+     * set this to true to draw the x-value text into the pie slices
+     *
+     * @param enabled
+     */
+    public void setDrawSliceText(boolean enabled) {
+        mDrawXLabels = enabled;
+    }
+
+    /**
+     * returns true if drawing x-values is enabled, false if not
+     *
+     * @return
+     */
+    public boolean isDrawSliceTextEnabled() {
+        return mDrawXLabels;
+    }
+
+    /**
+     * Returns true if the chart is set to draw each end of a pie-slice
+     * "rounded".
+     *
+     * @return
+     */
+    public boolean isDrawRoundedSlicesEnabled() {
+        return mDrawRoundedSlices;
+    }
+
+    /**
+     * If this is enabled, values inside the PieChart are drawn in percent and
+     * not with their original value. Values provided for the ValueFormatter to
+     * format are then provided in percent.
+     *
+     * @param enabled
+     */
+    public void setUsePercentValues(boolean enabled) {
+        mUsePercentValues = enabled;
+    }
+
+    /**
+     * Returns true if using percentage values is enabled for the chart.
+     *
+     * @return
+     */
+    public boolean isUsePercentValuesEnabled() {
+        return mUsePercentValues;
+    }
+
+    /**
+     * the rectangular radius of the bounding box for the center text, as a percentage of the pie hole
+     * default 1.f (100%)
+     */
+    public void setCenterTextRadiusPercent(float percent) {
+        mCenterTextRadiusPercent = percent;
+    }
+
+    /**
+     * the rectangular radius of the bounding box for the center text, as a percentage of the pie hole
+     * default 1.f (100%)
+     */
+    public float getCenterTextRadiusPercent() {
+        return mCenterTextRadiusPercent;
+    }
+
+    public float getMaxAngle() {
+        return mMaxAngle;
+    }
+
+    /**
+     * Sets the max angle that is used for calculating the pie-circle. 360f means
+     * it's a full PieChart, 180f results in a half-pie-chart. Default: 360f
+     *
+     * @param maxangle min 90, max 360
+     */
+    public void setMaxAngle(float maxangle) {
+
+        if (maxangle > 360)
+            maxangle = 360f;
+
+        if (maxangle < 90)
+            maxangle = 90f;
+
+        this.mMaxAngle = maxangle;
     }
 
     @Override
-    public void setPaint(Paint p, int which) {
-        super.setPaint(p, which);
-
-        switch (which) {
-            case PAINT_HOLE:
-                mHolePaint = p;
-                break;
-            case PAINT_CENTER_TEXT:
-                mCenterTextPaint = p;
-                break;
+    protected void onDetachedFromWindow() {
+        // releases the bitmap in the renderer to avoid oom error
+        if (mRenderer != null && mRenderer instanceof PieChartRenderer) {
+            ((PieChartRenderer) mRenderer).releaseBitmap();
         }
+        super.onDetachedFromWindow();
     }
 
-    @Override
-    public Paint getPaint(int which) {
-        Paint p = super.getPaint(which);
-        if (p != null)
-            return p;
-
-        switch (which) {
-            case PAINT_HOLE:
-                return mHolePaint;
-            case PAINT_CENTER_TEXT:
-                return mCenterTextPaint;
-        }
-
-        return null;
-    }
 }

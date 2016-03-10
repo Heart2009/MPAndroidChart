@@ -22,10 +22,6 @@
         android:title="Toggle Highlight">
     </item>
     <item
-        android:id="@+id/actionToggleStartzero"
-        android:title="Toggle StartZero">
-    </item>
-    <item
         android:id="@+id/animateX"
         android:title="Animate X">
     </item>
@@ -42,15 +38,15 @@
         android:title="Toggle AdjustXLegend">
     </item>
     <item
-        android:id="@+id/actionToggleFilter"
-        android:title="Toggle filter">
-    </item>
-    <item
         android:id="@+id/actionSave"
         android:title="Save to SD-Card">
     </item>
-<item
+    <item
         android:id="@+id/actionTogglePinch"
         android:title="Toggle PinchZoom">
+    </item>
+    <item
+        android:id="@+id/actionToggleAutoScaleMinMax"
+        android:title="Toggle auto scale min/max">
     </item>
 </menu>

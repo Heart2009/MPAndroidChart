@@ -7,13 +7,11 @@ import android.os.Bundle;
 import android.view.WindowManager;
 
 import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.components.Legend;
 import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
-import com.github.mikephil.charting.utils.Legend;
-import com.github.mikephil.charting.utils.Legend.LegendForm;
-import com.github.mikephil.charting.utils.XLabels;
-import com.github.mikephil.charting.utils.YLabels;
+import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 import com.xxmassdeveloper.mpchartexample.notimportant.DemoBase;
 
 import java.util.ArrayList;
@@ -38,6 +36,7 @@ public class LineChartActivityColored extends DemoBase {
         mTf = Typeface.createFromAsset(getAssets(), "OpenSans-Bold.ttf");
 
         LineData data = getData(36, 100);
+        data.setValueTypeface(mTf);
 
         for (int i = 0; i < mCharts.length; i++)
             // add some transparency to the color with "& 0x90FFFFFF"
@@ -53,26 +52,15 @@ public class LineChartActivityColored extends DemoBase {
 
     private void setupChart(LineChart chart, LineData data, int color) {
 
-        // if enabled, the chart will always start at zero on the y-axis
-        chart.setStartAtZero(true);
-
-        // disable the drawing of values into the chart
-        chart.setDrawYValues(false);
-
-        chart.setDrawBorder(false);
-
         // no description text
         chart.setDescription("");
         chart.setNoDataTextDescription("You need to provide data for the chart.");
-
-        // enable / disable grid lines
-        chart.setDrawVerticalGrid(false);
+        
         // mChart.setDrawHorizontalGrid(false);
         //
         // enable / disable grid background
         chart.setDrawGridBackground(false);
-        chart.setGridColor(Color.WHITE & 0x70FFFFFF);
-        chart.setGridWidth(1.25f);
+//        chart.getRenderer().getGridPaint().setGridColor(Color.WHITE & 0x70FFFFFF);
 
         // enable touch gestures
         chart.setTouchEnabled(true);
@@ -85,30 +73,21 @@ public class LineChartActivityColored extends DemoBase {
         chart.setPinchZoom(false);
 
         chart.setBackgroundColor(color);
-
-        chart.setValueTypeface(mTf);
+        
+        // set custom chart offsets (automatic offset calculation is hereby disabled)
+        chart.setViewPortOffsets(10, 0, 10, 0);
 
         // add data
         chart.setData(data);
 
         // get the legend (only possible after setting data)
         Legend l = chart.getLegend();
+        l.setEnabled(false);
 
-        // modify the legend ...
-        // l.setPosition(LegendPosition.LEFT_OF_CHART);
-        l.setForm(LegendForm.CIRCLE);
-        l.setFormSize(6f);
-        l.setTextColor(Color.WHITE);
-        l.setTypeface(mTf);
+        chart.getAxisLeft().setEnabled(false);
+        chart.getAxisRight().setEnabled(false);
 
-        YLabels y = chart.getYLabels();
-        y.setTextColor(Color.WHITE);
-        y.setTypeface(mTf);
-        y.setLabelCount(4);
-
-        XLabels x = chart.getXLabels();
-        x.setTextColor(Color.WHITE);
-        x.setTypeface(mTf);
+        chart.getXAxis().setEnabled(false);
 
         // animate calls invalidate()...
         chart.animateX(2500);
@@ -134,12 +113,13 @@ public class LineChartActivityColored extends DemoBase {
         // set1.setFillColor(Color.RED);
 
         set1.setLineWidth(1.75f);
-        set1.setCircleSize(3f);
+        set1.setCircleRadius(3f);
         set1.setColor(Color.WHITE);
         set1.setCircleColor(Color.WHITE);
         set1.setHighLightColor(Color.WHITE);
+        set1.setDrawValues(false);
 
-        ArrayList<LineDataSet> dataSets = new ArrayList<LineDataSet>();
+        ArrayList<ILineDataSet> dataSets = new ArrayList<ILineDataSet>();
         dataSets.add(set1); // add the datasets
 
         // create a data object with the datasets

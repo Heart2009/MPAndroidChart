@@ -2,19 +2,24 @@ package com.xxmassdeveloper.mpchartexample.fragments;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
+import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import com.github.mikephil.charting.charts.BarChart;
-import com.github.mikephil.charting.utils.Legend;
-import com.github.mikephil.charting.utils.YLabels;
-import com.xxmassdeveloper.mpchartexample.MyMarkerView;
+import com.github.mikephil.charting.components.Legend;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.listener.ChartTouchListener;
+import com.github.mikephil.charting.listener.OnChartGestureListener;
 import com.xxmassdeveloper.mpchartexample.R;
+import com.xxmassdeveloper.mpchartexample.custom.MyMarkerView;
 
 
-public class BarChartFrag extends SimpleFragment {
+public class BarChartFrag extends SimpleFragment implements OnChartGestureListener {
 
     public static Fragment newInstance() {
         return new BarChartFrag();
@@ -29,20 +34,13 @@ public class BarChartFrag extends SimpleFragment {
         // create a new chart object
         mChart = new BarChart(getActivity());
         mChart.setDescription("");
+        mChart.setOnChartGestureListener(this);
         
         MyMarkerView mv = new MyMarkerView(getActivity(), R.layout.custom_marker_view);
-        mv.setOffsets(-mv.getMeasuredWidth() / 2, -mv.getMeasuredHeight());
 
         mChart.setMarkerView(mv);
-        
-        mChart.setHighlightIndicatorEnabled(false);
-        mChart.setDrawBorder(false);
-//        mChart.setBorderStyles(new BorderStyle[] { BorderStyle.LEFT });
+
         mChart.setDrawGridBackground(false);
-        mChart.setDrawVerticalGrid(false);
-        mChart.setDrawXLabels(false);
-        mChart.setDrawYValues(false);
-        mChart.setUnit(" €");
         mChart.setDrawBarShadow(false);
         
         Typeface tf = Typeface.createFromAsset(getActivity().getAssets(),"OpenSans-Light.ttf");
@@ -52,9 +50,14 @@ public class BarChartFrag extends SimpleFragment {
         Legend l = mChart.getLegend();
         l.setTypeface(tf);
         
-        YLabels labels = mChart.getYLabels();
-        labels.setTypeface(tf);
-//        labels.setPosition(YLabelPosition.BOTH_SIDED);
+        YAxis leftAxis = mChart.getAxisLeft();
+        leftAxis.setTypeface(tf);
+        leftAxis.setAxisMinValue(0f); // this replaces setStartAtZero(true)
+
+        mChart.getAxisRight().setEnabled(false);
+        
+        XAxis xAxis = mChart.getXAxis();
+        xAxis.setEnabled(false);
         
         // programatically add the chart
         FrameLayout parent = (FrameLayout) v.findViewById(R.id.parentLayout);
@@ -62,4 +65,46 @@ public class BarChartFrag extends SimpleFragment {
         
         return v;
     }
+
+    @Override
+    public void onChartGestureStart(MotionEvent me, ChartTouchListener.ChartGesture lastPerformedGesture) {
+        Log.i("Gesture", "START");
+    }
+
+    @Override
+    public void onChartGestureEnd(MotionEvent me, ChartTouchListener.ChartGesture lastPerformedGesture) {
+        Log.i("Gesture", "END");
+        mChart.highlightValues(null);
+    }
+
+    @Override
+    public void onChartLongPressed(MotionEvent me) {
+        Log.i("LongPress", "Chart longpressed.");
+    }
+
+    @Override
+    public void onChartDoubleTapped(MotionEvent me) {
+        Log.i("DoubleTap", "Chart double-tapped.");
+    }
+
+    @Override
+    public void onChartSingleTapped(MotionEvent me) {
+        Log.i("SingleTap", "Chart single-tapped.");
+    }
+
+    @Override
+    public void onChartFling(MotionEvent me1, MotionEvent me2, float velocityX, float velocityY) {
+        Log.i("Fling", "Chart flinged. VeloX: " + velocityX + ", VeloY: " + velocityY);
+    }
+   
+    @Override
+    public void onChartScale(MotionEvent me, float scaleX, float scaleY) {
+        Log.i("Scale / Zoom", "ScaleX: " + scaleX + ", ScaleY: " + scaleY);
+    }
+
+	@Override
+	public void onChartTranslate(MotionEvent me, float dX, float dY) {
+		Log.i("Translate / Move", "dX: " + dX + ", dY: " + dY);
+	}
+
 }

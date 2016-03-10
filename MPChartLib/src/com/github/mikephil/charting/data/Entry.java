@@ -1,13 +1,17 @@
 
 package com.github.mikephil.charting.data;
 
+import android.os.Parcel;
+import android.os.ParcelFormatException;
+import android.os.Parcelable;
+
 /**
  * Class representing one entry in the chart. Might contain multiple values.
  * Might only contain a single value depending on the used constructor.
  * 
  * @author Philipp Jahoda
  */
-public class Entry {
+public class Entry implements Parcelable {
 
     /** the actual value */
     private float mVal = 0f;
@@ -93,34 +97,13 @@ public class Entry {
     }
 
     /**
-     * Sets additional data this Entry should represents.
+     * Sets additional data this Entry should represent.
      * 
      * @param data
      */
     public void setData(Object data) {
         this.mData = data;
     }
-
-    // /**
-    // * If this Enry represents mulitple values (e.g. Stacked BarChart), it
-    // will
-    // * return the sum of them, otherwise just the one value it represents.
-    // *
-    // * @return
-    // */
-    // public float getSum() {
-    // if (mVals == null)
-    // return mVal;
-    // else {
-    //
-    // float sum = 0f;
-    //
-    // for (int i = 0; i < mVals.length; i++)
-    // sum += mVals[i];
-    //
-    // return sum;
-    // }
-    // }
 
     /**
      * returns an exact copy of the entry
@@ -134,7 +117,8 @@ public class Entry {
 
     /**
      * Compares value, xIndex and data of the entries. Returns true if entries
-     * are equal, false if not.
+     * are equal in those points, false if not. Does not check by hash-code like
+     * it's done by the "equals" method.
      * 
      * @param e
      * @return
@@ -162,4 +146,43 @@ public class Entry {
     public String toString() {
         return "Entry, xIndex: " + mXIndex + " val (sum): " + getVal();
     }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    @Override
+    public void writeToParcel(Parcel dest, int flags) {
+        dest.writeFloat(this.mVal);
+        dest.writeInt(this.mXIndex);
+        if (mData != null) {
+            if (mData instanceof Parcelable) {
+                dest.writeInt(1);
+                dest.writeParcelable((Parcelable) this.mData, flags);
+            } else {
+                throw new ParcelFormatException("Cannot parcel an Entry with non-parcelable data");
+            }
+        } else {
+            dest.writeInt(0);
+        }
+    }
+
+    protected Entry(Parcel in) {
+        this.mVal = in.readFloat();
+        this.mXIndex = in.readInt();
+        if (in.readInt() == 1) {
+            this.mData = in.readParcelable(Object.class.getClassLoader());
+        }
+    }
+
+    public static final Parcelable.Creator<Entry> CREATOR = new Parcelable.Creator<Entry>() {
+        public Entry createFromParcel(Parcel source) {
+            return new Entry(source);
+        }
+
+        public Entry[] newArray(int size) {
+            return new Entry[size];
+        }
+    };
 }

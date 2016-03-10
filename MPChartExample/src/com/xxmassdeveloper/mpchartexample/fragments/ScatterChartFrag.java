@@ -7,10 +7,12 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import com.github.mikephil.charting.charts.ScatterChart;
-import com.github.mikephil.charting.utils.Legend;
-import com.github.mikephil.charting.utils.YLabels;
-import com.xxmassdeveloper.mpchartexample.MyMarkerView;
+import com.github.mikephil.charting.components.Legend;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.components.XAxis.XAxisPosition;
 import com.xxmassdeveloper.mpchartexample.R;
+import com.xxmassdeveloper.mpchartexample.custom.MyMarkerView;
 
 
 public class ScatterChartFrag extends SimpleFragment {
@@ -26,31 +28,37 @@ public class ScatterChartFrag extends SimpleFragment {
         View v = inflater.inflate(R.layout.frag_simple_scatter, container, false);
         
         mChart = (ScatterChart) v.findViewById(R.id.scatterChart1);
-        mChart.setDrawYValues(false);
         mChart.setDescription("");
         
         Typeface tf = Typeface.createFromAsset(getActivity().getAssets(),"OpenSans-Light.ttf");
         
-        YLabels labels = mChart.getYLabels();
-        labels.setTypeface(tf);
-        
         MyMarkerView mv = new MyMarkerView(getActivity(), R.layout.custom_marker_view);
-        mv.setOffsets(-mv.getMeasuredWidth() / 2, -mv.getMeasuredHeight());
 
         mChart.setMarkerView(mv);
 
-        mChart.setHighlightIndicatorEnabled(false);
-        mChart.setDrawBorder(false);
-//        mChart.setBorderStyles(new BorderStyle[] { BorderStyle.LEFT });
         mChart.setDrawGridBackground(false);
-        mChart.setDrawVerticalGrid(false);
-        mChart.setDrawXLabels(false);
-        mChart.setUnit(" $");
+        mChart.setData(generateScatterData(6, 10000, 200));
         
-        mChart.setData(generateScatterData(3, 10000, 150));
+        XAxis xAxis = mChart.getXAxis();
+        xAxis.setEnabled(true);
+        xAxis.setPosition(XAxisPosition.BOTTOM);
+        
+        YAxis leftAxis = mChart.getAxisLeft();
+        leftAxis.setTypeface(tf);
+        
+        YAxis rightAxis = mChart.getAxisRight();
+        rightAxis.setTypeface(tf);
+        rightAxis.setDrawGridLines(false);
         
         Legend l = mChart.getLegend();
+        l.setWordWrapEnabled(true);
         l.setTypeface(tf);
+        l.setFormSize(14f);
+        l.setTextSize(9f);
+        
+        // increase the space between legend & bottom and legend & content
+        l.setYOffset(13f);       
+        mChart.setExtraBottomOffset(16f);
         
         return v;
     }
